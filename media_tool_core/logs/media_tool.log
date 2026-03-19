@@ -20,3 +20,4 @@
 2026-03-19 23:28:42,271 - INFO - _client:1025 - HTTP Request: POST http://testserver/api/parse "HTTP/1.1 500 Internal Server Error"
 2026-03-19 23:30:10,165 - INFO - _client:1025 - HTTP Request: GET http://testserver/web/styles.css "HTTP/1.1 200 OK"
 2026-03-19 23:30:10,169 - INFO - _client:1025 - HTTP Request: GET http://testserver/web/app.js "HTTP/1.1 200 OK"
+2026-03-19 23:56:41,285 - INFO - _client:1025 - HTTP Request: POST http://testserver/api/parse "HTTP/1.1 500 Internal Server Error"
