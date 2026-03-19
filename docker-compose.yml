@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        INSTALL_FUNASR: ${MEDIA_TOOL_INSTALL_FUNASR:-false}
     container_name: media-tool
     restart: unless-stopped
     ports:

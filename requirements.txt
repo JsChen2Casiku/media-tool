@@ -7,9 +7,8 @@ ffmpeg-python==0.2.0
 future==1.0.0
 yt-dlp>=2023.11.16
 pydantic>=2.12.5,<3
-torch>=1.13
-torchaudio
-funasr>=1.0.0
-modelscope>=1.11.1
-doubaoime-asr @ https://github.com/starccy/doubaoime-asr/archive/9210f628d0dddea5eda45724e79c7f534615a926.tar.gz
+protobuf>=6.31.1
+websockets>=12.0
+miniaudio>=1.61
+opuslib>=3.0.1
 mcp>=1.0.0

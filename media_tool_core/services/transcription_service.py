@@ -169,7 +169,7 @@ class FunASRTranscriber:
             from funasr import AutoModel
         except ModuleNotFoundError as exc:
             raise ValueError(
-                "当前环境未安装 FunASR 依赖，请安装 funasr、modelscope、torch、torchaudio，"
+                "当前环境未安装 FunASR 依赖，请安装 requirements-funasr.txt 中的依赖，"
                 "或切换回 openai / doubaoime 转写后端。"
             ) from exc
 

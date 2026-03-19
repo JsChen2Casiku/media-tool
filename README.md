@@ -66,6 +66,8 @@ copy .env.example .env
 示例：
 
 ```env
+MEDIA_TOOL_INSTALL_FUNASR=false
+
 MEDIA_TOOL_TRANSCRIBER_BACKEND=openai
 MEDIA_TOOL_API_BASE=https://api.openai.com/v1
 MEDIA_TOOL_API_KEY=sk-xxxx
@@ -82,6 +84,11 @@ MEDIA_TOOL_DOUBAOIME_DEVICE_ID=
 MEDIA_TOOL_DOUBAOIME_TOKEN=
 MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION=true
 ```
+
+说明：
+
+- 默认 Compose 构建只安装基础依赖与 `doubaoime` 所需依赖，不安装 FunASR 重型依赖
+- 只有在你确实需要 `funasr` 本地转写时，才把 `MEDIA_TOOL_INSTALL_FUNASR=true` 后重新执行 `docker compose build --no-cache`
 
 ### 3. 构建并启动
 
@@ -114,6 +121,7 @@ curl http://localhost:8000/api/health
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
+| `MEDIA_TOOL_INSTALL_FUNASR` | `false` | 是否在镜像构建阶段额外安装 FunASR 依赖；开启后镜像更大，构建更慢 |
 | `MEDIA_TOOL_TRANSCRIBER_BACKEND` | `openai` | 默认转写后端，可选 `openai`、`funasr`、`doubaoime` |
 | `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 普通 HTTP 请求超时，单位秒 |
 | `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT` | `300` | 转写请求超时，单位秒 |
@@ -147,11 +155,12 @@ curl http://localhost:8000/api/health
 
 - FunASR 在容器内本地运行
 - 依赖 `torch`、`torchaudio`、`funasr`、`modelscope`
-- 镜像体积会明显增加
+- 默认镜像不会安装这组依赖，需要先设置 `MEDIA_TOOL_INSTALL_FUNASR=true` 再重新构建
+- 镜像体积会明显增加，构建时间也会更长
 
 ### 豆包输入法 ASR 配置
 
-本能力接入自 GitHub 仓库 `starccy/doubaoime-asr`。
+本项目已内置豆包输入法 ASR 所需的最小客户端实现，默认构建不再依赖容器内拉取 GitHub 压缩包。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -393,6 +402,12 @@ pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 8051
 ```
 
+如果你要在本机启用 `funasr` 后端，还需要额外执行：
+
+```powershell
+pip install -r requirements-funasr.txt
+```
+
 额外要求：
 
 - 本机需要安装 `ffmpeg`
@@ -428,7 +443,19 @@ Docker Compose 镜像内已内置 `ffmpeg`。
 - `MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH` 所在目录可写
 - 网络能够访问该后端所需的远端服务
 
-### 4. 为什么 Web UI 没有“下载资源”大按钮了
+### 4. `docker compose build` 卡在 `pip install -r /app/requirements.txt`
+
+先检查 `.env` 里的：
+
+- `MEDIA_TOOL_INSTALL_FUNASR` 是否被设成了 `true`
+
+说明：
+
+- 默认推荐保持 `MEDIA_TOOL_INSTALL_FUNASR=false`，这样只安装基础依赖，构建更稳定
+- 如果你确实需要 `funasr`，再改成 `true` 并执行 `docker compose build --no-cache`
+- 即使未安装 FunASR，项目依然可以使用 `openai` 和 `doubaoime` 两种转写后端
+
+### 5. 为什么 Web UI 没有“下载资源”大按钮了
 
 这是当前设计调整后的结果。
 
@@ -440,7 +467,7 @@ Docker Compose 镜像内已内置 `ffmpeg`。
 
 这样可以避免整包下载，操作更细，也更适合预览后再决定是否保存。
 
-### 5. 转写结束后文件会不会堆积
+### 6. 转写结束后文件会不会堆积
 
 不会。
 
