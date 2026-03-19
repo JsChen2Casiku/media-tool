@@ -6,7 +6,7 @@ services:
     container_name: media-tool
     restart: unless-stopped
     ports:
-      - "8051:8051"
+      - "8000:8051"
     environment:
       MEDIA_TOOL_API_BASE: ${MEDIA_TOOL_API_BASE:-https://api.openai.com/v1}
       MEDIA_TOOL_API_KEY: ${MEDIA_TOOL_API_KEY:-}
