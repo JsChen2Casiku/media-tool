@@ -17,7 +17,7 @@
         <h1>解析、预览、转写，一套界面完成。</h1>
         <p class="hero-text">
           面向短视频内容处理的统一控制台。先解析媒体结构，再直接预览视频、音频、封面和图集。
-          转写层已统一重构为 OpenTypeless 模型链，只保留 IME 与官方文件识别两种模式。
+          转写层已经统一到 OpenTypeless 模型链，只保留 IME 与官方文件识别两种模式。
         </p>
         <div class="hero-tags">
           <span>OpenTypeless</span>
@@ -78,7 +78,12 @@
 
           <div class="full-span" id="credential-path-wrap">
             <label class="field-label" for="credential-path">IME 凭据文件</label>
-            <input id="credential-path" class="text-input" type="text" placeholder="/app/runtime/storage/opentypeless/credentials.json">
+            <input
+              id="credential-path"
+              class="text-input"
+              type="text"
+              placeholder="/app/runtime/storage/opentypeless/credentials.json"
+            >
           </div>
 
           <div id="device-id-wrap">
@@ -93,12 +98,22 @@
 
           <div id="official-app-key-wrap">
             <label class="field-label" for="official-app-key">官方 App Key</label>
-            <input id="official-app-key" class="text-input" type="password" placeholder="官方文件识别 App Key">
+            <input
+              id="official-app-key"
+              class="text-input"
+              type="password"
+              placeholder="官方文件识别 App Key"
+            >
           </div>
 
           <div id="official-access-key-wrap">
             <label class="field-label" for="official-access-key">官方 Access Key</label>
-            <input id="official-access-key" class="text-input" type="password" placeholder="官方文件识别 Access Key">
+            <input
+              id="official-access-key"
+              class="text-input"
+              type="password"
+              placeholder="官方文件识别 Access Key"
+            >
           </div>
 
           <div class="full-span" id="official-uid-wrap">
