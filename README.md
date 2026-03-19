@@ -67,6 +67,8 @@ copy .env.example .env
 
 ```env
 MEDIA_TOOL_INSTALL_FUNASR=false
+MEDIA_TOOL_PIP_INDEX_URL=https://pypi.org/simple
+MEDIA_TOOL_PIP_EXTRA_INDEX_URL=
 
 MEDIA_TOOL_TRANSCRIBER_BACKEND=openai
 MEDIA_TOOL_API_BASE=https://api.openai.com/v1
@@ -89,6 +91,7 @@ MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION=true
 
 - 默认 Compose 构建只安装基础依赖与 `doubaoime` 所需依赖，不安装 FunASR 重型依赖
 - 只有在你确实需要 `funasr` 本地转写时，才把 `MEDIA_TOOL_INSTALL_FUNASR=true` 后重新执行 `docker compose build --no-cache`
+- 如果服务器访问 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成你自己的镜像源
 
 ### 3. 构建并启动
 
@@ -122,6 +125,8 @@ curl http://localhost:8000/api/health
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `MEDIA_TOOL_INSTALL_FUNASR` | `false` | 是否在镜像构建阶段额外安装 FunASR 依赖；开启后镜像更大，构建更慢 |
+| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | 构建镜像时使用的主 PyPI 源，可替换为国内镜像 |
+| `MEDIA_TOOL_PIP_EXTRA_INDEX_URL` | 空 | 可选的额外 Python 包源 |
 | `MEDIA_TOOL_TRANSCRIBER_BACKEND` | `openai` | 默认转写后端，可选 `openai`、`funasr`、`doubaoime` |
 | `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 普通 HTTP 请求超时，单位秒 |
 | `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT` | `300` | 转写请求超时，单位秒 |
@@ -454,6 +459,8 @@ Docker Compose 镜像内已内置 `ffmpeg`。
 - 默认推荐保持 `MEDIA_TOOL_INSTALL_FUNASR=false`，这样只安装基础依赖，构建更稳定
 - 如果你确实需要 `funasr`，再改成 `true` 并执行 `docker compose build --no-cache`
 - 即使未安装 FunASR，项目依然可以使用 `openai` 和 `doubaoime` 两种转写后端
+- 如果服务器网络到 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成可用镜像后重试
+- 如果还失败，建议执行 `docker compose build --no-cache --progress=plain` 查看完整 pip 报错
 
 ### 5. 为什么 Web UI 没有“下载资源”大按钮了
 
