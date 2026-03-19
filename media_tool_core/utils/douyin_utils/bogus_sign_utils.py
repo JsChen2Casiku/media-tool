@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import shutil
 import subprocess
 import urllib
 from pathlib import Path
@@ -14,18 +15,23 @@ class CommonUtils(object):
         self.x_bogus_js_path = js_path / "x_bogus.js"
         self.a_bogus_js_path = js_path / "a_bogus.js"
         self.runner_js_path = js_path / "sign_runner.js"
+        self.node_binary = shutil.which("node") or shutil.which("nodejs")
 
     def _run_js_function(self, script_path: Path, function_name: str, *args) -> str:
         payload = json.dumps(list(args), ensure_ascii=False)
+        if not self.node_binary:
+            raise RuntimeError("未检测到 node 或 nodejs 可执行文件，请先安装 Node.js 或使用 Docker Compose 部署。")
+
         try:
             process = subprocess.run(
-                ["node", str(self.runner_js_path), str(script_path), function_name, payload],
+                [self.node_binary, str(self.runner_js_path), str(script_path), function_name, payload],
                 capture_output=True,
                 text=True,
                 check=False,
             )
         except FileNotFoundError as exc:
-            raise RuntimeError("未检测到 node 可执行文件，请先安装 Node.js 或使用 Docker Compose 部署。") from exc
+            raise RuntimeError("未检测到 node 或 nodejs 可执行文件，请先安装 Node.js 或使用 Docker Compose 部署。") from exc
+
         if process.returncode != 0:
             stderr = process.stderr.strip() or process.stdout.strip()
             raise RuntimeError(f"Node 签名执行失败: {stderr}")
