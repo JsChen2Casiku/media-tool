@@ -1,20 +1,10 @@
 const qs = (selector) => document.querySelector(selector);
 
 const DEFAULTS = {
-  openai: {
-    apiBase: "https://api.openai.com/v1",
-    model: "gpt-4o-mini-transcribe",
-  },
-  funasr: {
-    model: "paraformer-zh",
-    vadModel: "fsmn-vad",
-    puncModel: "ct-punc",
-    device: "auto",
-  },
-  doubaoime: {
-    model: "doubaoime-asr",
-    credentialPath: "/app/runtime/storage/doubaoime/credentials.json",
-  },
+  model: "doubao-asr",
+  credentialPath: "/app/runtime/storage/opentypeless/credentials.json",
+  officialMode: "flash",
+  officialUid: "opentypeless",
 };
 
 const state = {
@@ -25,17 +15,14 @@ const state = {
 
 const elements = {
   text: qs("#media-text"),
-  backend: qs("#backend"),
-  apiBase: qs("#api-base"),
-  apiKey: qs("#api-key"),
   apiModel: qs("#api-model"),
-  funasrVadModel: qs("#funasr-vad-model"),
-  funasrPuncModel: qs("#funasr-punc-model"),
-  funasrDevice: qs("#funasr-device"),
-  doubaoimeCredentialPath: qs("#doubaoime-credential-path"),
-  doubaoimeDeviceId: qs("#doubaoime-device-id"),
-  doubaoimeToken: qs("#doubaoime-token"),
-  doubaoimeEnablePunctuation: qs("#doubaoime-enable-punctuation"),
+  credentialPath: qs("#credential-path"),
+  deviceId: qs("#device-id"),
+  token: qs("#token"),
+  officialMode: qs("#official-mode"),
+  officialAppKey: qs("#official-app-key"),
+  officialAccessKey: qs("#official-access-key"),
+  officialUid: qs("#official-uid"),
   saveTranscript: qs("#save-transcript"),
   parseAction: qs("#parse-action"),
   extractAction: qs("#extract-action"),
@@ -51,57 +38,19 @@ const elements = {
   previewGrid: qs("#preview-grid"),
   transcriptOutput: qs("#transcript-output"),
   summaryTemplate: qs("#summary-item-template"),
-  apiBaseWrap: qs("#api-base-wrap"),
-  apiKeyWrap: qs("#api-key-wrap"),
-  funasrVadWrap: qs("#funasr-vad-wrap"),
-  funasrPuncWrap: qs("#funasr-punc-wrap"),
-  funasrDeviceWrap: qs("#funasr-device-wrap"),
-  doubaoimeCredentialWrap: qs("#doubaoime-credential-wrap"),
-  doubaoimeDeviceWrap: qs("#doubaoime-device-wrap"),
-  doubaoimeTokenWrap: qs("#doubaoime-token-wrap"),
-  doubaoimePunctuationCard: qs("#doubaoime-punctuation-card"),
+  credentialPathWrap: qs("#credential-path-wrap"),
+  deviceIdWrap: qs("#device-id-wrap"),
+  tokenWrap: qs("#token-wrap"),
+  officialModeWrap: qs("#official-mode-wrap"),
+  officialAppKeyWrap: qs("#official-app-key-wrap"),
+  officialAccessKeyWrap: qs("#official-access-key-wrap"),
+  officialUidWrap: qs("#official-uid-wrap"),
 };
 
 function setStatus(kind, title, message) {
   elements.statusCard.className = `status-card ${kind}`;
   elements.statusTitle.textContent = title;
   elements.statusMessage.textContent = message;
-}
-
-function saveConfig() {
-  const payload = {
-    backend: elements.backend.value,
-    apiBase: elements.apiBase.value.trim(),
-    apiKey: elements.apiKey.value.trim(),
-    apiModel: elements.apiModel.value.trim(),
-    funasrVadModel: elements.funasrVadModel.value.trim(),
-    funasrPuncModel: elements.funasrPuncModel.value.trim(),
-    funasrDevice: elements.funasrDevice.value.trim(),
-    doubaoimeCredentialPath: elements.doubaoimeCredentialPath.value.trim(),
-    doubaoimeDeviceId: elements.doubaoimeDeviceId.value.trim(),
-    doubaoimeToken: elements.doubaoimeToken.value.trim(),
-    doubaoimeEnablePunctuation: elements.doubaoimeEnablePunctuation.checked,
-  };
-  localStorage.setItem("media-tool-config", JSON.stringify(payload));
-}
-
-function restoreConfig() {
-  const raw = localStorage.getItem("media-tool-config");
-  const parsed = raw ? safeJsonParse(raw) : {};
-
-  elements.backend.value = parsed.backend || "openai";
-  elements.apiBase.value = parsed.apiBase || DEFAULTS.openai.apiBase;
-  elements.apiKey.value = parsed.apiKey || "";
-  elements.apiModel.value = parsed.apiModel || DEFAULTS.openai.model;
-  elements.funasrVadModel.value = parsed.funasrVadModel || DEFAULTS.funasr.vadModel;
-  elements.funasrPuncModel.value = parsed.funasrPuncModel || DEFAULTS.funasr.puncModel;
-  elements.funasrDevice.value = parsed.funasrDevice || DEFAULTS.funasr.device;
-  elements.doubaoimeCredentialPath.value = parsed.doubaoimeCredentialPath || DEFAULTS.doubaoime.credentialPath;
-  elements.doubaoimeDeviceId.value = parsed.doubaoimeDeviceId || "";
-  elements.doubaoimeToken.value = parsed.doubaoimeToken || "";
-  elements.doubaoimeEnablePunctuation.checked = parsed.doubaoimeEnablePunctuation !== false;
-
-  syncBackendFields(false);
 }
 
 function safeJsonParse(text) {
@@ -112,6 +61,36 @@ function safeJsonParse(text) {
   }
 }
 
+function saveConfig() {
+  const payload = {
+    apiModel: elements.apiModel.value,
+    credentialPath: elements.credentialPath.value.trim(),
+    deviceId: elements.deviceId.value.trim(),
+    token: elements.token.value.trim(),
+    officialMode: elements.officialMode.value,
+    officialAppKey: elements.officialAppKey.value.trim(),
+    officialAccessKey: elements.officialAccessKey.value.trim(),
+    officialUid: elements.officialUid.value.trim(),
+  };
+  localStorage.setItem("media-tool-config", JSON.stringify(payload));
+}
+
+function restoreConfig() {
+  const raw = localStorage.getItem("media-tool-config");
+  const parsed = raw ? safeJsonParse(raw) : {};
+
+  elements.apiModel.value = parsed.apiModel || DEFAULTS.model;
+  elements.credentialPath.value = parsed.credentialPath || DEFAULTS.credentialPath;
+  elements.deviceId.value = parsed.deviceId || "";
+  elements.token.value = parsed.token || "";
+  elements.officialMode.value = parsed.officialMode || DEFAULTS.officialMode;
+  elements.officialAppKey.value = parsed.officialAppKey || "";
+  elements.officialAccessKey.value = parsed.officialAccessKey || "";
+  elements.officialUid.value = parsed.officialUid || DEFAULTS.officialUid;
+
+  syncModelFields(false);
+}
+
 function toggleElement(element, visible) {
   if (!element) {
     return;
@@ -119,88 +98,49 @@ function toggleElement(element, visible) {
   element.hidden = !visible;
 }
 
-function syncBackendFields(shouldAutoFill = true) {
-  const backend = elements.backend.value;
+function isOfficialModel(model) {
+  return model.startsWith("doubao-asr-official");
+}
 
-  toggleElement(elements.apiBaseWrap, backend === "openai");
-  toggleElement(elements.apiKeyWrap, backend === "openai");
+function syncModelFields(shouldSave = true) {
+  const model = elements.apiModel.value.trim();
+  const official = isOfficialModel(model);
+  const genericOfficial = model === "doubao-asr-official";
+  const ime = model === "doubao-asr";
 
-  toggleElement(elements.funasrVadWrap, backend === "funasr");
-  toggleElement(elements.funasrPuncWrap, backend === "funasr");
-  toggleElement(elements.funasrDeviceWrap, backend === "funasr");
+  toggleElement(elements.credentialPathWrap, ime);
+  toggleElement(elements.deviceIdWrap, ime);
+  toggleElement(elements.tokenWrap, ime);
 
-  toggleElement(elements.doubaoimeCredentialWrap, backend === "doubaoime");
-  toggleElement(elements.doubaoimeDeviceWrap, backend === "doubaoime");
-  toggleElement(elements.doubaoimeTokenWrap, backend === "doubaoime");
-  toggleElement(elements.doubaoimePunctuationCard, backend === "doubaoime");
+  toggleElement(elements.officialModeWrap, genericOfficial);
+  toggleElement(elements.officialAppKeyWrap, official);
+  toggleElement(elements.officialAccessKeyWrap, official);
+  toggleElement(elements.officialUidWrap, official);
 
-  if (!shouldAutoFill) {
-    return;
+  if (ime && !elements.credentialPath.value.trim()) {
+    elements.credentialPath.value = DEFAULTS.credentialPath;
+  }
+  if (official && !elements.officialUid.value.trim()) {
+    elements.officialUid.value = DEFAULTS.officialUid;
   }
 
-  if (backend === "openai") {
-    if (!elements.apiBase.value.trim()) {
-      elements.apiBase.value = DEFAULTS.openai.apiBase;
-    }
-    if (
-      !elements.apiModel.value.trim() ||
-      elements.apiModel.value === DEFAULTS.funasr.model ||
-      elements.apiModel.value === DEFAULTS.doubaoime.model
-    ) {
-      elements.apiModel.value = DEFAULTS.openai.model;
-    }
+  if (shouldSave) {
+    saveConfig();
   }
-
-  if (backend === "funasr") {
-    if (
-      !elements.apiModel.value.trim() ||
-      elements.apiModel.value === DEFAULTS.openai.model ||
-      elements.apiModel.value === DEFAULTS.doubaoime.model
-    ) {
-      elements.apiModel.value = DEFAULTS.funasr.model;
-    }
-    if (!elements.funasrVadModel.value.trim()) {
-      elements.funasrVadModel.value = DEFAULTS.funasr.vadModel;
-    }
-    if (!elements.funasrPuncModel.value.trim()) {
-      elements.funasrPuncModel.value = DEFAULTS.funasr.puncModel;
-    }
-    if (!elements.funasrDevice.value.trim()) {
-      elements.funasrDevice.value = DEFAULTS.funasr.device;
-    }
-  }
-
-  if (backend === "doubaoime") {
-    if (
-      !elements.apiModel.value.trim() ||
-      elements.apiModel.value === DEFAULTS.openai.model ||
-      elements.apiModel.value === DEFAULTS.funasr.model
-    ) {
-      elements.apiModel.value = DEFAULTS.doubaoime.model;
-    }
-    if (!elements.doubaoimeCredentialPath.value.trim()) {
-      elements.doubaoimeCredentialPath.value = DEFAULTS.doubaoime.credentialPath;
-    }
-  }
-
-  saveConfig();
 }
 
 function getCommonPayload() {
   saveConfig();
   return {
     text: elements.text.value.trim(),
-    backend: elements.backend.value,
-    api_base: elements.apiBase.value.trim(),
-    api_key: elements.apiKey.value.trim(),
     model: elements.apiModel.value.trim(),
-    funasr_vad_model: elements.funasrVadModel.value.trim(),
-    funasr_punc_model: elements.funasrPuncModel.value.trim(),
-    funasr_device: elements.funasrDevice.value.trim(),
-    doubaoime_credential_path: elements.doubaoimeCredentialPath.value.trim(),
-    doubaoime_device_id: elements.doubaoimeDeviceId.value.trim(),
-    doubaoime_token: elements.doubaoimeToken.value.trim(),
-    doubaoime_enable_punctuation: elements.doubaoimeEnablePunctuation.checked,
+    opentypeless_credential_path: elements.credentialPath.value.trim(),
+    opentypeless_device_id: elements.deviceId.value.trim(),
+    opentypeless_token: elements.token.value.trim(),
+    opentypeless_official_mode: elements.officialMode.value,
+    opentypeless_official_app_key: elements.officialAppKey.value.trim(),
+    opentypeless_official_access_key: elements.officialAccessKey.value.trim(),
+    opentypeless_official_uid: elements.officialUid.value.trim(),
     save_video: false,
     save_cover: false,
     save_images: false,
@@ -258,6 +198,9 @@ function renderSummary(media, meta = {}) {
   }
   if (meta.model) {
     entries.push(["转写模型", meta.model]);
+  }
+  if (meta.mode) {
+    entries.push(["识别模式", meta.mode]);
   }
   if (meta.output_dir) {
     entries.push(["输出目录", meta.output_dir]);
@@ -427,13 +370,13 @@ async function checkHealth() {
     const data = await response.json();
     if (response.ok && data.success) {
       elements.healthStatus.textContent = "在线";
-      elements.healthHint.textContent = "接口正常，可以开始处理媒体";
+      elements.healthHint.textContent = "接口正常，可以开始处理媒体。";
       return;
     }
     throw new Error("健康检查失败");
   } catch {
     elements.healthStatus.textContent = "异常";
-    elements.healthHint.textContent = "无法连接到后端接口";
+    elements.healthHint.textContent = "无法连接到后端接口。";
   }
 }
 
@@ -464,7 +407,7 @@ async function handleExtract() {
     return;
   }
 
-  setStatus("loading", "正在提取文案", "正在下载临时媒体、抽取音频并提交转写。");
+  setStatus("loading", "正在提取文案", "正在下载临时媒体、抽取音频并提交 OpenTypeless 转写。");
   try {
     const result = await requestJson("/api/extract", payload);
     state.lastText = result.data.media.source_url || payload.text;
@@ -475,6 +418,7 @@ async function handleExtract() {
       output_dir: result.data.output_dir,
       backend: result.data.transcription?.backend,
       model: result.data.transcription?.model,
+      mode: result.data.transcription?.mode,
     });
     renderPreview(result.data.media);
     elements.transcriptOutput.textContent = state.lastTranscript || "转写接口未返回内容";
@@ -482,7 +426,7 @@ async function handleExtract() {
     setStatus(
       "success",
       "提取完成",
-      "文案已经生成，临时下载的视频和音频文件已在服务端自动清理。",
+      "文案已经生成，临时下载的视频和中间音频文件已在服务端自动清理。",
     );
   } catch (error) {
     setStatus("error", "提取失败", error.message);
@@ -511,21 +455,19 @@ function bindEvents() {
   });
 
   [
-    elements.apiBase,
-    elements.apiKey,
     elements.apiModel,
-    elements.funasrVadModel,
-    elements.funasrPuncModel,
-    elements.funasrDevice,
-    elements.doubaoimeCredentialPath,
-    elements.doubaoimeDeviceId,
-    elements.doubaoimeToken,
-    elements.doubaoimeEnablePunctuation,
+    elements.credentialPath,
+    elements.deviceId,
+    elements.token,
+    elements.officialMode,
+    elements.officialAppKey,
+    elements.officialAccessKey,
+    elements.officialUid,
   ].forEach((input) => {
     input.addEventListener("change", saveConfig);
   });
 
-  elements.backend.addEventListener("change", () => syncBackendFields(true));
+  elements.apiModel.addEventListener("change", () => syncModelFields(true));
 }
 
 restoreConfig();

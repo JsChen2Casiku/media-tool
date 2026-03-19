@@ -1,326 +1,407 @@
 from __future__ import annotations
 
 import asyncio
-import mimetypes
+import base64
 import os
-import threading
+import time
+import uuid
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import requests
 
-DEFAULT_TRANSCRIBER_BACKEND = os.getenv("MEDIA_TOOL_TRANSCRIBER_BACKEND", "openai")
-DEFAULT_API_BASE = os.getenv("MEDIA_TOOL_API_BASE", "https://api.openai.com/v1")
-DEFAULT_API_KEY = os.getenv("MEDIA_TOOL_API_KEY", "")
-DEFAULT_MODEL = os.getenv("MEDIA_TOOL_MODEL", "gpt-4o-mini-transcribe")
-DEFAULT_TIMEOUT = int(os.getenv("MEDIA_TOOL_TRANSCRIPTION_TIMEOUT", "300"))
+IME_MODEL_ID = "doubao-asr"
+OFFICIAL_MODEL_ID = "doubao-asr-official"
+OFFICIAL_STANDARD_MODEL_ID = "doubao-asr-official-standard"
+OFFICIAL_FLASH_MODEL_ID = "doubao-asr-official-flash"
 
-DEFAULT_FUNASR_MODEL = os.getenv("MEDIA_TOOL_FUNASR_MODEL", "paraformer-zh")
-DEFAULT_FUNASR_VAD_MODEL = os.getenv("MEDIA_TOOL_FUNASR_VAD_MODEL", "fsmn-vad")
-DEFAULT_FUNASR_PUNC_MODEL = os.getenv("MEDIA_TOOL_FUNASR_PUNC_MODEL", "ct-punc")
-DEFAULT_FUNASR_DEVICE = os.getenv("MEDIA_TOOL_FUNASR_DEVICE", "auto")
-
-DEFAULT_DOUBAOIME_MODEL = os.getenv("MEDIA_TOOL_DOUBAOIME_MODEL", "doubaoime-asr")
-DEFAULT_DOUBAOIME_CREDENTIAL_PATH = os.getenv(
-    "MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH",
-    "",
+DEFAULT_MODEL = os.getenv("MEDIA_TOOL_OPENTYPELESS_MODEL", IME_MODEL_ID)
+DEFAULT_CREDENTIAL_PATH = os.getenv("MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH", "")
+DEFAULT_DEVICE_ID = os.getenv("MEDIA_TOOL_OPENTYPELESS_DEVICE_ID", "")
+DEFAULT_TOKEN = os.getenv("MEDIA_TOOL_OPENTYPELESS_TOKEN", "")
+DEFAULT_DEFAULT_BACKEND = os.getenv("MEDIA_TOOL_OPENTYPELESS_DEFAULT_BACKEND", "ime")
+DEFAULT_OFFICIAL_MODE = os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE", "flash")
+DEFAULT_OFFICIAL_APP_KEY = os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY", "")
+DEFAULT_OFFICIAL_ACCESS_KEY = os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY", "")
+DEFAULT_OFFICIAL_STANDARD_SUBMIT_ENDPOINT = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_SUBMIT_ENDPOINT",
+    "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit",
 )
-DEFAULT_DOUBAOIME_DEVICE_ID = os.getenv("MEDIA_TOOL_DOUBAOIME_DEVICE_ID", "")
-DEFAULT_DOUBAOIME_TOKEN = os.getenv("MEDIA_TOOL_DOUBAOIME_TOKEN", "")
-DEFAULT_DOUBAOIME_ENABLE_PUNCTUATION = (
-    os.getenv("MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION", "true").strip().lower()
-    not in {"0", "false", "no", "off"}
+DEFAULT_OFFICIAL_STANDARD_QUERY_ENDPOINT = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_QUERY_ENDPOINT",
+    "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query",
+)
+DEFAULT_OFFICIAL_FLASH_ENDPOINT = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_ENDPOINT",
+    "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash",
+)
+DEFAULT_OFFICIAL_STANDARD_RESOURCE_ID = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_RESOURCE_ID",
+    "volc.seedasr.auc",
+)
+DEFAULT_OFFICIAL_FLASH_RESOURCE_ID = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_RESOURCE_ID",
+    "volc.bigasr.auc_turbo",
+)
+DEFAULT_OFFICIAL_MODEL_NAME = os.getenv(
+    "MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODEL_NAME",
+    "bigmodel",
+)
+DEFAULT_OFFICIAL_UID = os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_UID", "opentypeless")
+DEFAULT_OFFICIAL_TIMEOUT_SEC = int(
+    os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_TIMEOUT_SEC", "120")
+)
+DEFAULT_OFFICIAL_QUERY_INTERVAL_SEC = float(
+    os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_INTERVAL_SEC", "1.0")
+)
+DEFAULT_OFFICIAL_QUERY_TIMEOUT_SEC = int(
+    os.getenv("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_TIMEOUT_SEC", "300")
+)
+DEFAULT_SAMPLE_RATE = int(os.getenv("MEDIA_TOOL_OPENTYPELESS_SAMPLE_RATE", "16000"))
+DEFAULT_CHANNELS = int(os.getenv("MEDIA_TOOL_OPENTYPELESS_CHANNELS", "1"))
+DEFAULT_FRAME_DURATION_MS = int(
+    os.getenv("MEDIA_TOOL_OPENTYPELESS_FRAME_DURATION_MS", "20")
 )
 
-_FUNASR_MODEL_CACHE: dict[tuple[str, str, str, str], object] = {}
-_FUNASR_MODEL_CACHE_LOCK = threading.Lock()
+
+class BackendMode(str, Enum):
+    IME = "ime"
+    OFFICIAL = "official"
+
+
+class OfficialMode(str, Enum):
+    STANDARD = "standard"
+    FLASH = "flash"
 
 
 @dataclass
 class TranscriptionConfig:
-    backend: str
-    api_base: str
-    api_key: str
-    model: str
-    timeout: int = DEFAULT_TIMEOUT
-    funasr_vad_model: str = DEFAULT_FUNASR_VAD_MODEL
-    funasr_punc_model: str = DEFAULT_FUNASR_PUNC_MODEL
-    funasr_device: str = DEFAULT_FUNASR_DEVICE
-    doubaoime_credential_path: str = DEFAULT_DOUBAOIME_CREDENTIAL_PATH
-    doubaoime_device_id: str = DEFAULT_DOUBAOIME_DEVICE_ID
-    doubaoime_token: str = DEFAULT_DOUBAOIME_TOKEN
-    doubaoime_enable_punctuation: bool = DEFAULT_DOUBAOIME_ENABLE_PUNCTUATION
+    model: str = DEFAULT_MODEL
+    credential_path: str = DEFAULT_CREDENTIAL_PATH
+    device_id: str = DEFAULT_DEVICE_ID
+    token: str = DEFAULT_TOKEN
+    default_backend: str = DEFAULT_DEFAULT_BACKEND
+    official_mode: str = DEFAULT_OFFICIAL_MODE
+    official_app_key: str = DEFAULT_OFFICIAL_APP_KEY
+    official_access_key: str = DEFAULT_OFFICIAL_ACCESS_KEY
+    official_standard_submit_endpoint: str = DEFAULT_OFFICIAL_STANDARD_SUBMIT_ENDPOINT
+    official_standard_query_endpoint: str = DEFAULT_OFFICIAL_STANDARD_QUERY_ENDPOINT
+    official_flash_endpoint: str = DEFAULT_OFFICIAL_FLASH_ENDPOINT
+    official_standard_resource_id: str = DEFAULT_OFFICIAL_STANDARD_RESOURCE_ID
+    official_flash_resource_id: str = DEFAULT_OFFICIAL_FLASH_RESOURCE_ID
+    official_model_name: str = DEFAULT_OFFICIAL_MODEL_NAME
+    official_uid: str = DEFAULT_OFFICIAL_UID
+    official_timeout_sec: int = DEFAULT_OFFICIAL_TIMEOUT_SEC
+    official_query_interval_sec: float = DEFAULT_OFFICIAL_QUERY_INTERVAL_SEC
+    official_query_timeout_sec: int = DEFAULT_OFFICIAL_QUERY_TIMEOUT_SEC
+    sample_rate: int = DEFAULT_SAMPLE_RATE
+    channels: int = DEFAULT_CHANNELS
+    frame_duration_ms: int = DEFAULT_FRAME_DURATION_MS
 
     @classmethod
     def from_values(
         cls,
-        backend: Optional[str] = None,
-        api_base: Optional[str] = None,
-        api_key: Optional[str] = None,
         model: Optional[str] = None,
-        funasr_vad_model: Optional[str] = None,
-        funasr_punc_model: Optional[str] = None,
-        funasr_device: Optional[str] = None,
-        doubaoime_credential_path: Optional[str] = None,
-        doubaoime_device_id: Optional[str] = None,
-        doubaoime_token: Optional[str] = None,
-        doubaoime_enable_punctuation: Optional[bool] = None,
+        opentypeless_credential_path: Optional[str] = None,
+        opentypeless_device_id: Optional[str] = None,
+        opentypeless_token: Optional[str] = None,
+        opentypeless_default_backend: Optional[str] = None,
+        opentypeless_official_mode: Optional[str] = None,
+        opentypeless_official_app_key: Optional[str] = None,
+        opentypeless_official_access_key: Optional[str] = None,
+        opentypeless_official_uid: Optional[str] = None,
     ) -> "TranscriptionConfig":
-        resolved_backend = (backend or DEFAULT_TRANSCRIBER_BACKEND).strip().lower() or "openai"
-        resolved_model = (model or "").strip()
-        if not resolved_model:
-            if resolved_backend == "funasr":
-                resolved_model = DEFAULT_FUNASR_MODEL
-            elif resolved_backend == "doubaoime":
-                resolved_model = DEFAULT_DOUBAOIME_MODEL
-            else:
-                resolved_model = DEFAULT_MODEL
-
         return cls(
-            backend=resolved_backend,
-            api_base=(api_base or DEFAULT_API_BASE).strip(),
-            api_key=(api_key or DEFAULT_API_KEY).strip(),
-            model=resolved_model,
-            timeout=DEFAULT_TIMEOUT,
-            funasr_vad_model=(funasr_vad_model or DEFAULT_FUNASR_VAD_MODEL).strip(),
-            funasr_punc_model=(funasr_punc_model or DEFAULT_FUNASR_PUNC_MODEL).strip(),
-            funasr_device=(funasr_device or DEFAULT_FUNASR_DEVICE).strip() or "auto",
-            doubaoime_credential_path=(
-                doubaoime_credential_path or DEFAULT_DOUBAOIME_CREDENTIAL_PATH
+            model=(model or DEFAULT_MODEL).strip() or IME_MODEL_ID,
+            credential_path=(opentypeless_credential_path or DEFAULT_CREDENTIAL_PATH).strip(),
+            device_id=(opentypeless_device_id or DEFAULT_DEVICE_ID).strip(),
+            token=(opentypeless_token or DEFAULT_TOKEN).strip(),
+            default_backend=(opentypeless_default_backend or DEFAULT_DEFAULT_BACKEND).strip()
+            or BackendMode.IME.value,
+            official_mode=(opentypeless_official_mode or DEFAULT_OFFICIAL_MODE).strip()
+            or OfficialMode.FLASH.value,
+            official_app_key=(
+                opentypeless_official_app_key or DEFAULT_OFFICIAL_APP_KEY
             ).strip(),
-            doubaoime_device_id=(doubaoime_device_id or DEFAULT_DOUBAOIME_DEVICE_ID).strip(),
-            doubaoime_token=(doubaoime_token or DEFAULT_DOUBAOIME_TOKEN).strip(),
-            doubaoime_enable_punctuation=(
-                DEFAULT_DOUBAOIME_ENABLE_PUNCTUATION
-                if doubaoime_enable_punctuation is None
-                else bool(doubaoime_enable_punctuation)
-            ),
+            official_access_key=(
+                opentypeless_official_access_key or DEFAULT_OFFICIAL_ACCESS_KEY
+            ).strip(),
+            official_uid=(opentypeless_official_uid or DEFAULT_OFFICIAL_UID).strip()
+            or DEFAULT_OFFICIAL_UID,
         )
 
     @property
-    def endpoint(self) -> str:
-        base = self.api_base.rstrip("/")
-        if base.endswith("/audio/transcriptions"):
-            return base
-        return f"{base}/audio/transcriptions"
+    def resolved_backend(self) -> BackendMode:
+        normalized = self.model.strip().lower()
+        if normalized in {
+            OFFICIAL_MODEL_ID,
+            OFFICIAL_STANDARD_MODEL_ID,
+            OFFICIAL_FLASH_MODEL_ID,
+            BackendMode.OFFICIAL.value,
+        }:
+            return BackendMode.OFFICIAL
+        if normalized == IME_MODEL_ID:
+            return BackendMode.IME
+        try:
+            return BackendMode(self.default_backend.lower())
+        except ValueError:
+            return BackendMode.IME
+
+    @property
+    def resolved_official_mode(self) -> OfficialMode:
+        normalized = self.model.strip().lower()
+        if normalized in {OFFICIAL_STANDARD_MODEL_ID, "official-standard", "standard"}:
+            return OfficialMode.STANDARD
+        if normalized in {OFFICIAL_FLASH_MODEL_ID, "official-flash", "flash"}:
+            return OfficialMode.FLASH
+        try:
+            return OfficialMode(self.official_mode.lower())
+        except ValueError:
+            return OfficialMode.FLASH
 
 
-class OpenAICompatibleTranscriber:
+class OpenTypelessTranscriber:
     def __init__(self, config: TranscriptionConfig):
-        if not config.api_key:
-            raise ValueError(
-                "缺少 API Key，请通过参数或环境变量 MEDIA_TOOL_API_KEY 提供。"
-            )
         self.config = config
 
     def transcribe(self, audio_path: Path) -> str:
-        mime_type, _ = mimetypes.guess_type(audio_path.name)
-        headers = {"Authorization": f"Bearer {self.config.api_key}"}
-        data = {"model": self.config.model}
+        if not audio_path.exists() or audio_path.stat().st_size == 0:
+            raise ValueError("转写音频为空，无法提交 OpenTypeless。")
 
-        with audio_path.open("rb") as file_obj:
-            files = {
-                "file": (
-                    audio_path.name,
-                    file_obj,
-                    mime_type or "application/octet-stream",
-                )
-            }
-            response = requests.post(
-                self.config.endpoint,
-                headers=headers,
-                data=data,
-                files=files,
-                timeout=self.config.timeout,
-            )
+        if self.config.resolved_backend == BackendMode.OFFICIAL:
+            audio_bytes = audio_path.read_bytes()
+            return asyncio.run(self._official_transcribe(audio_bytes))
+        return asyncio.run(self._ime_transcribe(audio_path))
 
-        if response.status_code >= 400:
-            raise ValueError(f"转写失败，HTTP {response.status_code}: {response.text}")
-
-        payload = response.json()
-        text = payload.get("text")
-        if not text:
-            raise ValueError(f"转写接口未返回 text 字段: {payload}")
-        return text
-
-
-class FunASRTranscriber:
-    def __init__(self, config: TranscriptionConfig):
-        self.config = config
-        self.model = self._get_or_create_model()
-
-    def _get_or_create_model(self):
-        cache_key = (
-            self.config.model,
-            self.config.funasr_vad_model,
-            self.config.funasr_punc_model,
-            self._resolve_device(),
-        )
-        with _FUNASR_MODEL_CACHE_LOCK:
-            cached_model = _FUNASR_MODEL_CACHE.get(cache_key)
-            if cached_model is not None:
-                return cached_model
-
-            model = self._build_model(cache_key[3])
-            _FUNASR_MODEL_CACHE[cache_key] = model
-            return model
-
-    def _build_model(self, resolved_device: str):
+    async def _ime_transcribe(self, audio_path: Path) -> str:
         try:
-            from funasr import AutoModel
+            from doubaoime_asr import ASRConfig, ResponseType, transcribe_stream
         except ModuleNotFoundError as exc:
             raise ValueError(
-                "当前环境未安装 FunASR 依赖，请安装 requirements-funasr.txt 中的依赖，"
-                "或切换回 openai / doubaoime 转写后端。"
+                "当前环境缺少 OpenTypeless IME 模式依赖，请重新安装 requirements.txt 或重建 Docker 镜像。"
             ) from exc
 
         kwargs = {
-            "model": self.config.model,
-            "device": resolved_device,
+            "sample_rate": self.config.sample_rate,
+            "channels": self.config.channels,
+            "frame_duration_ms": self.config.frame_duration_ms,
         }
-        if self.config.funasr_vad_model:
-            kwargs["vad_model"] = self.config.funasr_vad_model
-            kwargs["vad_kwargs"] = {"max_single_segment_time": 30000}
-        if self.config.funasr_punc_model:
-            kwargs["punc_model"] = self.config.funasr_punc_model
-        return AutoModel(**kwargs)
+        if self.config.credential_path:
+            kwargs["credential_path"] = self.config.credential_path
+        if self.config.device_id:
+            kwargs["device_id"] = self.config.device_id
+        if self.config.token:
+            kwargs["token"] = self.config.token
 
-    def _resolve_device(self) -> str:
-        requested = self.config.funasr_device.lower()
-        if requested and requested != "auto":
-            return requested
+        final_texts: list[str] = []
+        async for response in transcribe_stream(
+            str(audio_path),
+            config=ASRConfig(**kwargs),
+            realtime=False,
+        ):
+            if response.type == ResponseType.FINAL_RESULT:
+                final_texts.append(response.text or "")
+            elif response.type == ResponseType.ERROR:
+                raise ValueError(f"OpenTypeless IME 转写失败: {response.error_msg}")
+
+        return "".join(final_texts).strip()
+
+    async def _official_transcribe(self, audio_data: bytes) -> str:
+        mode = self.config.resolved_official_mode
+        if mode == OfficialMode.STANDARD:
+            return await asyncio.to_thread(self._official_standard_transcribe, audio_data)
+        return await asyncio.to_thread(self._official_flash_transcribe, audio_data)
+
+    def _resolve_official_credentials(self) -> tuple[str, str]:
+        missing = []
+        if not self.config.official_app_key:
+            missing.append("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY")
+        if not self.config.official_access_key:
+            missing.append("MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY")
+        if missing:
+            raise ValueError(f"缺少官方文件识别配置: {', '.join(missing)}")
+        return self.config.official_app_key, self.config.official_access_key
+
+    def _build_request_headers(
+        self,
+        resource_id: str,
+        request_id: str,
+        app_key: str,
+        access_key: str,
+    ) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "X-Api-App-Key": app_key,
+            "X-Api-Access-Key": access_key,
+            "X-Api-Resource-Id": resource_id,
+            "X-Api-Request-Id": request_id,
+            "X-Api-Sequence": "-1",
+        }
+
+    def _build_audio_payload(self, audio_data: bytes) -> dict[str, str]:
+        return {"data": base64.b64encode(audio_data).decode("utf-8")}
+
+    def _request_json(
+        self,
+        url: str,
+        headers: dict[str, str],
+        body: dict,
+    ) -> tuple[dict, dict[str, str]]:
         try:
-            import torch
-        except ModuleNotFoundError:
-            return "cpu"
-        return "cuda:0" if torch.cuda.is_available() else "cpu"
+            response = requests.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=self.config.official_timeout_sec,
+            )
+        except requests.RequestException as exc:
+            raise ValueError(f"OpenTypeless 官方请求失败: {exc}") from exc
 
-    def transcribe(self, audio_path: Path) -> str:
-        result = self.model.generate(input=str(audio_path), cache={}, batch_size_s=300)
-        if not result:
-            raise ValueError("FunASR 未返回任何转写结果。")
-
-        first = result[0] if isinstance(result, list) else result
-        text = first.get("text") if isinstance(first, dict) else None
-        if not text:
-            raise ValueError(f"FunASR 未返回 text 字段: {result}")
-
-        if "sensevoice" in self.config.model.lower():
-            try:
-                from funasr.utils.postprocess_utils import rich_transcription_postprocess
-
-                text = rich_transcription_postprocess(text)
-            except Exception:
-                pass
-        return text.strip()
-
-
-class DoubaoIMETranscriber:
-    def __init__(self, config: TranscriptionConfig):
-        self.config = config
-
-    def transcribe(self, audio_path: Path) -> str:
-        try:
-            from doubaoime_asr import ASRConfig, transcribe
-        except ModuleNotFoundError as exc:
+        response_headers = {key.lower(): value for key, value in response.headers.items()}
+        if response.status_code >= 400:
             raise ValueError(
-                "当前环境未安装 doubaoime ASR 依赖，请重新安装 requirements.txt 或重建 Docker 镜像。"
-            ) from exc
+                f"OpenTypeless 官方请求失败，HTTP {response.status_code}: {response.text[:500]}"
+            )
 
-        asr_config = self._build_asr_config(ASRConfig)
-        allow_refresh_retry = not self.config.doubaoime_device_id and not self.config.doubaoime_token
+        if not response.text:
+            return {}, response_headers
 
         try:
-            text = self._run_transcribe(transcribe, asr_config, audio_path)
-        except Exception as first_exc:
-            if allow_refresh_retry and self._should_refresh_credentials(first_exc):
-                asr_config.reset_credentials(clear_cached_file=True)
-                try:
-                    text = self._run_transcribe(transcribe, asr_config, audio_path)
-                except Exception as retry_exc:
-                    raise ValueError(
-                        "豆包输入法 ASR 转写失败："
-                        f"{self._format_doubao_error(retry_exc)}；"
-                        "已尝试清理本地凭据并重新注册设备，但仍未成功。"
-                    ) from retry_exc
-            else:
-                raise ValueError(
-                    f"豆包输入法 ASR 转写失败：{self._format_doubao_error(first_exc)}"
-                ) from first_exc
+            payload = response.json()
+        except ValueError as exc:
+            raise ValueError("OpenTypeless 官方接口返回了非 JSON 数据。") from exc
+        return payload, response_headers
 
+    def _status_code(self, payload: dict, headers: dict[str, str]) -> Optional[str]:
+        value = headers.get("x-api-status-code")
+        if value is not None:
+            return str(value)
+        code = payload.get("code")
+        return None if code is None else str(code)
+
+    def _status_message(self, payload: dict, headers: dict[str, str]) -> str:
+        return str(
+            payload.get("message")
+            or payload.get("msg")
+            or headers.get("x-api-message")
+            or "unknown error"
+        )
+
+    def _extract_text(self, payload: dict) -> str:
+        result = payload.get("result")
+        if isinstance(result, dict):
+            text = result.get("text")
+            if isinstance(text, str):
+                return text
+        if isinstance(result, list):
+            parts: list[str] = []
+            for item in result:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            if parts:
+                return "".join(parts)
+        if isinstance(payload.get("text"), str):
+            return payload["text"]
+        return ""
+
+    def _official_flash_transcribe(self, audio_data: bytes) -> str:
+        app_key, access_key = self._resolve_official_credentials()
+        request_id = str(uuid.uuid4())
+        headers = self._build_request_headers(
+            self.config.official_flash_resource_id,
+            request_id,
+            app_key,
+            access_key,
+        )
+        body = {
+            "user": {"uid": self.config.official_uid},
+            "audio": self._build_audio_payload(audio_data),
+            "request": {"model_name": self.config.official_model_name},
+        }
+        payload, response_headers = self._request_json(
+            self.config.official_flash_endpoint,
+            headers,
+            body,
+        )
+        status = self._status_code(payload, response_headers)
+        if status == "20000003":
+            return ""
+        if status and status != "20000000":
+            raise ValueError(
+                "OpenTypeless 官方极速版转写失败: "
+                f"status={status}, message={self._status_message(payload, response_headers)}"
+            )
+
+        text = self._extract_text(payload)
         if not text:
-            raise ValueError("豆包输入法 ASR 未返回任何转写结果。")
+            raise ValueError(f"OpenTypeless 官方极速版未返回文本: {payload}")
         return text.strip()
 
-    def _build_asr_config(self, asr_config_cls):
-        return asr_config_cls(
-            credential_path=self.config.doubaoime_credential_path or None,
-            device_id=self.config.doubaoime_device_id or None,
-            token=self.config.doubaoime_token or None,
-            sample_rate=16000,
-            channels=1,
-            enable_punctuation=self.config.doubaoime_enable_punctuation,
+    def _official_standard_transcribe(self, audio_data: bytes) -> str:
+        app_key, access_key = self._resolve_official_credentials()
+        request_id = str(uuid.uuid4())
+        submit_headers = self._build_request_headers(
+            self.config.official_standard_resource_id,
+            request_id,
+            app_key,
+            access_key,
         )
-
-    def _run_transcribe(self, transcribe_func, asr_config, audio_path: Path) -> str:
-        return _run_coroutine(transcribe_func(str(audio_path), config=asr_config, realtime=False))
-
-    def _should_refresh_credentials(self, exc: Exception) -> bool:
-        message = str(exc).lower()
-        return any(
-            keyword in message
-            for keyword in ("internalerror", "invalid token", "token", "starttask", "startsession")
+        submit_body = {
+            "user": {"uid": self.config.official_uid},
+            "audio": self._build_audio_payload(audio_data),
+            "request": {"model_name": self.config.official_model_name},
+        }
+        submit_payload, submit_response_headers = self._request_json(
+            self.config.official_standard_submit_endpoint,
+            submit_headers,
+            submit_body,
         )
+        submit_status = self._status_code(submit_payload, submit_response_headers)
+        if submit_status and submit_status != "20000000":
+            raise ValueError(
+                "OpenTypeless 官方标准版提交失败: "
+                f"status={submit_status}, message={self._status_message(submit_payload, submit_response_headers)}"
+            )
 
-    def _format_doubao_error(self, exc: Exception) -> str:
-        response = getattr(exc, "response", None)
-        parts = [str(exc).strip() or exc.__class__.__name__]
+        task_id = submit_response_headers.get("x-api-request-id") or request_id
+        query_headers = self._build_request_headers(
+            self.config.official_standard_resource_id,
+            task_id,
+            app_key,
+            access_key,
+        )
+        deadline = time.monotonic() + self.config.official_query_timeout_sec
 
-        if response is not None:
-            response_type = getattr(getattr(response, "type", None), "name", None)
-            if response_type:
-                parts.append(f"阶段={response_type}")
-            error_msg = getattr(response, "error_msg", "")
-            if error_msg and error_msg not in parts[0]:
-                parts.append(f"详情={error_msg}")
+        while True:
+            if time.monotonic() >= deadline:
+                raise ValueError("OpenTypeless 官方标准版查询超时。")
 
-        credential_path = (self.config.doubaoime_credential_path or "").strip()
-        if credential_path:
-            parts.append(f"凭据文件={credential_path}")
+            query_payload, query_response_headers = self._request_json(
+                self.config.official_standard_query_endpoint,
+                query_headers,
+                {},
+            )
+            query_status = self._status_code(query_payload, query_response_headers)
+            if query_status == "20000000":
+                text = self._extract_text(query_payload)
+                if not text:
+                    raise ValueError(f"OpenTypeless 官方标准版未返回文本: {query_payload}")
+                return text.strip()
 
-        return "，".join(parts)
+            if query_status == "20000003":
+                return ""
 
+            if query_status in {"20000001", "20000002"}:
+                time.sleep(self.config.official_query_interval_sec)
+                continue
 
-def _run_coroutine(coroutine):
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coroutine)
-
-    result: dict[str, object] = {}
-    error: dict[str, BaseException] = {}
-
-    def runner():
-        try:
-            result["value"] = asyncio.run(coroutine)
-        except BaseException as exc:
-            error["value"] = exc
-
-    thread = threading.Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if "value" in error:
-        raise error["value"]
-    return result.get("value")
+            raise ValueError(
+                "OpenTypeless 官方标准版查询失败: "
+                f"status={query_status}, message={self._status_message(query_payload, query_response_headers)}"
+            )
 
 
-def create_transcriber(config: TranscriptionConfig):
-    if config.backend == "funasr":
-        return FunASRTranscriber(config)
-    if config.backend == "doubaoime":
-        return DoubaoIMETranscriber(config)
-    if config.backend == "openai":
-        return OpenAICompatibleTranscriber(config)
-    raise ValueError(f"不支持的转写后端: {config.backend}")
+def create_transcriber(config: TranscriptionConfig) -> OpenTypelessTranscriber:
+    return OpenTypelessTranscriber(config)

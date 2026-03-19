@@ -14,15 +14,15 @@
     <header class="hero-panel">
       <div class="hero-copy">
         <p class="eyebrow">MEDIA INTELLIGENCE CONSOLE</p>
-        <h1>解析、预览、提取文案，一套界面完成。</h1>
+        <h1>解析、预览、转写，一套界面完成。</h1>
         <p class="hero-text">
-          面向短视频内容处理的统一控制台。先解析媒体结构，再直接预览视频、音频、封面和图集，
-          需要什么就单独下载什么，不再走整包下载流程。
+          面向短视频内容处理的统一控制台。先解析媒体结构，再直接预览视频、音频、封面和图集。
+          转写层已统一重构为 OpenTypeless 模型链，只保留 IME 与官方文件识别两种模式。
         </p>
         <div class="hero-tags">
+          <span>OpenTypeless</span>
           <span>同源媒体预览</span>
           <span>单项下载</span>
-          <span>OpenAI / FunASR / DoubaoIME</span>
         </div>
       </div>
 
@@ -35,7 +35,7 @@
         <article class="metric-card">
           <span class="metric-label">工作流</span>
           <strong>解析 -> 预览 -> 提取</strong>
-          <small>转写临时文件自动清理，不保留中间下载产物</small>
+          <small>转写临时文件自动清理，不保留中间产物</small>
         </article>
       </div>
     </header>
@@ -59,57 +59,51 @@
 
         <div class="config-grid">
           <div>
-            <label class="field-label" for="backend">转写后端</label>
-            <select id="backend" class="text-input">
-              <option value="openai">openai</option>
-              <option value="funasr">funasr</option>
-              <option value="doubaoime">doubaoime</option>
+            <label class="field-label" for="api-model">OpenTypeless 模型</label>
+            <select id="api-model" class="text-input">
+              <option value="doubao-asr">doubao-asr</option>
+              <option value="doubao-asr-official">doubao-asr-official</option>
+              <option value="doubao-asr-official-standard">doubao-asr-official-standard</option>
+              <option value="doubao-asr-official-flash">doubao-asr-official-flash</option>
             </select>
           </div>
 
-          <div>
-            <label class="field-label" for="api-model">模型名称</label>
-            <input id="api-model" class="text-input" type="text" placeholder="gpt-4o-mini-transcribe">
+          <div id="official-mode-wrap">
+            <label class="field-label" for="official-mode">官方默认模式</label>
+            <select id="official-mode" class="text-input">
+              <option value="flash">flash</option>
+              <option value="standard">standard</option>
+            </select>
           </div>
 
-          <div id="api-base-wrap">
-            <label class="field-label" for="api-base">API Base</label>
-            <input id="api-base" class="text-input" type="text" placeholder="https://api.openai.com/v1">
+          <div class="full-span" id="credential-path-wrap">
+            <label class="field-label" for="credential-path">IME 凭据文件</label>
+            <input id="credential-path" class="text-input" type="text" placeholder="/app/runtime/storage/opentypeless/credentials.json">
           </div>
 
-          <div id="funasr-device-wrap">
-            <label class="field-label" for="funasr-device">FunASR 设备</label>
-            <input id="funasr-device" class="text-input" type="text" placeholder="auto / cpu / cuda:0">
+          <div id="device-id-wrap">
+            <label class="field-label" for="device-id">IME 设备 ID</label>
+            <input id="device-id" class="text-input" type="text" placeholder="可选">
           </div>
 
-          <div class="full-span" id="api-key-wrap">
-            <label class="field-label" for="api-key">API Key</label>
-            <input id="api-key" class="text-input" type="password" placeholder="sk-...">
+          <div id="token-wrap">
+            <label class="field-label" for="token">IME Token</label>
+            <input id="token" class="text-input" type="password" placeholder="可选">
           </div>
 
-          <div id="funasr-vad-wrap">
-            <label class="field-label" for="funasr-vad-model">FunASR VAD 模型</label>
-            <input id="funasr-vad-model" class="text-input" type="text" placeholder="fsmn-vad">
+          <div id="official-app-key-wrap">
+            <label class="field-label" for="official-app-key">官方 App Key</label>
+            <input id="official-app-key" class="text-input" type="password" placeholder="官方文件识别 App Key">
           </div>
 
-          <div id="funasr-punc-wrap">
-            <label class="field-label" for="funasr-punc-model">FunASR 标点模型</label>
-            <input id="funasr-punc-model" class="text-input" type="text" placeholder="ct-punc">
+          <div id="official-access-key-wrap">
+            <label class="field-label" for="official-access-key">官方 Access Key</label>
+            <input id="official-access-key" class="text-input" type="password" placeholder="官方文件识别 Access Key">
           </div>
 
-          <div class="full-span" id="doubaoime-credential-wrap">
-            <label class="field-label" for="doubaoime-credential-path">豆包凭据文件</label>
-            <input id="doubaoime-credential-path" class="text-input" type="text" placeholder="/app/runtime/storage/doubaoime/credentials.json">
-          </div>
-
-          <div id="doubaoime-device-wrap">
-            <label class="field-label" for="doubaoime-device-id">豆包设备 ID</label>
-            <input id="doubaoime-device-id" class="text-input" type="text" placeholder="可选">
-          </div>
-
-          <div id="doubaoime-token-wrap">
-            <label class="field-label" for="doubaoime-token">豆包 Token</label>
-            <input id="doubaoime-token" class="text-input" type="password" placeholder="可选">
+          <div class="full-span" id="official-uid-wrap">
+            <label class="field-label" for="official-uid">官方 UID</label>
+            <input id="official-uid" class="text-input" type="text" placeholder="opentypeless">
           </div>
         </div>
 
@@ -117,10 +111,6 @@
           <label class="toggle-card">
             <input type="checkbox" id="save-transcript" checked>
             <span>保存 transcript</span>
-          </label>
-          <label class="toggle-card" id="doubaoime-punctuation-card">
-            <input type="checkbox" id="doubaoime-enable-punctuation" checked>
-            <span>豆包自动标点</span>
           </label>
         </div>
 
@@ -146,9 +136,9 @@
         <div class="tips-card">
           <h3>说明</h3>
           <ul>
-            <li>媒体预览和下载均通过同源接口代理，不再依赖独立“下载资源”按钮。</li>
-            <li>视频、音频、封面、图集都支持单独下载，按需获取。</li>
-            <li>转写时用到的视频和抽出的音频文件只落在临时目录，完成后自动删除。</li>
+            <li>当前转写能力统一为 OpenTypeless 模型链，不再提供旧的 openai、funasr、独立豆包配置。</li>
+            <li>媒体预览与下载均通过同源接口代理，避免浏览器跨域问题。</li>
+            <li>转写时下载的视频和提取出的中间音频会在服务端自动删除。</li>
           </ul>
         </div>
       </aside>

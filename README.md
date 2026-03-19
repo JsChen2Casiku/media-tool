@@ -1,26 +1,22 @@
 # media-tool
 
-`media-tool` 是一个面向短视频场景的统一工具，支持链接解析、媒体预览、按需下载、封面与图集获取，以及音频转写文案提取。
+`media-tool` 是一个面向短视频场景的统一工具，支持链接解析、媒体预览、按需下载、文案提取，并提供 Web UI、HTTP API、CLI、MCP Server 四种入口。
 
-当前项目提供四种入口：
+当前项目的转写能力已经统一重构为 `OpenTypeless` 模型链，不再保留旧的 `openai`、`funasr`、独立旧豆包参数配置。
 
-- Web UI
-- HTTP API
-- CLI
-- MCP Server
+支持的转写模型：
 
-同时支持三种转写后端：
-
-- `openai`：对接兼容 `POST /audio/transcriptions` 的 API
-- `funasr`：本地推理
-- `doubaoime`：接入 `doubaoime-asr` 客户端能力
+- `doubao-asr`
+- `doubao-asr-official`
+- `doubao-asr-official-standard`
+- `doubao-asr-official-flash`
 
 ## 功能概览
 
 - 多平台短视频链接解析
 - 视频、音频、封面、图集预览
 - 视频、音频、封面、图集单项下载
-- 文案提取与保存
+- 使用 OpenTypeless 进行文案提取
 - Docker Compose 部署
 - 浏览器可视化操作界面
 
@@ -29,14 +25,15 @@
 ```text
 media-tool/
 |-- media_tool_core/          # 核心逻辑
+|-- doubaoime_asr/            # OpenTypeless IME 模式依赖的本地最小实现
 |-- web/                      # Web UI 静态页面
 |-- app.py                    # FastAPI 入口
 |-- cli.py                    # CLI 入口
 |-- mcp_server.py             # MCP Server 入口
-|-- Dockerfile                # 容器镜像定义
-|-- docker-compose.yml        # Compose 配置
-|-- .env.example              # 环境变量示例
-|-- requirements.txt          # Python 依赖
+|-- Dockerfile
+|-- docker-compose.yml
+|-- .env.example
+|-- requirements.txt
 `-- README.md
 ```
 
@@ -66,32 +63,37 @@ copy .env.example .env
 示例：
 
 ```env
-MEDIA_TOOL_INSTALL_FUNASR=false
 MEDIA_TOOL_PIP_INDEX_URL=https://pypi.org/simple
 MEDIA_TOOL_PIP_EXTRA_INDEX_URL=
 
-MEDIA_TOOL_TRANSCRIBER_BACKEND=openai
-MEDIA_TOOL_API_BASE=https://api.openai.com/v1
-MEDIA_TOOL_API_KEY=sk-xxxx
-MEDIA_TOOL_MODEL=gpt-4o-mini-transcribe
+MEDIA_TOOL_OPENTYPELESS_MODEL=doubao-asr
+MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH=/app/runtime/storage/opentypeless/credentials.json
+MEDIA_TOOL_OPENTYPELESS_DEVICE_ID=
+MEDIA_TOOL_OPENTYPELESS_TOKEN=
+MEDIA_TOOL_OPENTYPELESS_DEFAULT_BACKEND=ime
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE=flash
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY=
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY=
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_SUBMIT_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_QUERY_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/query
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_RESOURCE_ID=volc.seedasr.auc
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_RESOURCE_ID=volc.bigasr.auc_turbo
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODEL_NAME=bigmodel
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_UID=opentypeless
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_TIMEOUT_SEC=120
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_INTERVAL_SEC=1.0
+MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_TIMEOUT_SEC=300
 
-MEDIA_TOOL_FUNASR_MODEL=paraformer-zh
-MEDIA_TOOL_FUNASR_VAD_MODEL=fsmn-vad
-MEDIA_TOOL_FUNASR_PUNC_MODEL=ct-punc
-MEDIA_TOOL_FUNASR_DEVICE=auto
-
-MEDIA_TOOL_DOUBAOIME_MODEL=doubaoime-asr
-MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH=/app/runtime/storage/doubaoime/credentials.json
-MEDIA_TOOL_DOUBAOIME_DEVICE_ID=
-MEDIA_TOOL_DOUBAOIME_TOKEN=
-MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION=true
+MEDIA_TOOL_REQUEST_TIMEOUT=30
+MAX_CACHE_SIZE_MB=15
 ```
 
 说明：
 
-- 默认 Compose 构建只安装基础依赖与 `doubaoime` 所需依赖，不安装 FunASR 重型依赖
-- 只有在你确实需要 `funasr` 本地转写时，才把 `MEDIA_TOOL_INSTALL_FUNASR=true` 后重新执行 `docker compose build --no-cache`
-- 如果服务器访问 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成你自己的镜像源
+- `doubao-asr` 为 IME 模式，通常依赖本地凭据缓存
+- `doubao-asr-official*` 为官方文件识别模式，需要填写 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY` 与 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY`
+- 如果服务器访问 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成可用镜像
 
 ### 3. 构建并启动
 
@@ -112,7 +114,7 @@ docker compose logs -f media-tool
 curl http://localhost:8000/api/health
 ```
 
-成功时返回：
+返回：
 
 ```json
 {"success": true, "message": "ok"}
@@ -120,70 +122,59 @@ curl http://localhost:8000/api/health
 
 ## 环境变量说明
 
-### 通用配置
-
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `MEDIA_TOOL_INSTALL_FUNASR` | `false` | 是否在镜像构建阶段额外安装 FunASR 依赖；开启后镜像更大，构建更慢 |
-| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | 构建镜像时使用的主 PyPI 源，可替换为国内镜像 |
+| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | Docker 构建时使用的主 PyPI 源 |
 | `MEDIA_TOOL_PIP_EXTRA_INDEX_URL` | 空 | 可选的额外 Python 包源 |
-| `MEDIA_TOOL_TRANSCRIBER_BACKEND` | `openai` | 默认转写后端，可选 `openai`、`funasr`、`doubaoime` |
-| `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 普通 HTTP 请求超时，单位秒 |
-| `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT` | `300` | 转写请求超时，单位秒 |
+| `MEDIA_TOOL_OPENTYPELESS_MODEL` | `doubao-asr` | 默认转写模型 |
+| `MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH` | `/app/runtime/storage/opentypeless/credentials.json` | IME 模式凭据缓存文件路径 |
+| `MEDIA_TOOL_OPENTYPELESS_DEVICE_ID` | 空 | IME 模式设备 ID，可选 |
+| `MEDIA_TOOL_OPENTYPELESS_TOKEN` | 空 | IME 模式 Token，可选 |
+| `MEDIA_TOOL_OPENTYPELESS_DEFAULT_BACKEND` | `ime` | 默认后端，支持 `ime`、`official` |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE` | `flash` | 官方模式，支持 `flash`、`standard` |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY` | 空 | 官方文件识别 App Key |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY` | 空 | 官方文件识别 Access Key |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_SUBMIT_ENDPOINT` | 官方默认 submit 地址 | 官方标准版提交地址 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_QUERY_ENDPOINT` | 官方默认 query 地址 | 官方标准版查询地址 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_ENDPOINT` | 官方默认 flash 地址 | 官方极速版识别地址 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_RESOURCE_ID` | `volc.seedasr.auc` | 官方标准版资源 ID |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_RESOURCE_ID` | `volc.bigasr.auc_turbo` | 官方极速版资源 ID |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODEL_NAME` | `bigmodel` | 官方请求模型名 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_UID` | `opentypeless` | 官方请求 UID |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_TIMEOUT_SEC` | `120` | 官方接口请求超时，单位秒 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_INTERVAL_SEC` | `1.0` | 官方标准版轮询间隔，单位秒 |
+| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_TIMEOUT_SEC` | `300` | 官方标准版总轮询超时，单位秒 |
 | `MEDIA_TOOL_STORAGE_ROOT` | `/app/runtime/storage` | 容器内存储目录 |
 | `MEDIA_TOOL_LOG_ROOT` | `/app/runtime/logs` | 容器内日志目录 |
+| `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 普通 HTTP 请求超时，单位秒 |
 | `MAX_CACHE_SIZE_MB` | `15` | 缓存上限，单位 MB |
 
-### OpenAI 兼容转写配置
+## OpenTypeless 模型说明
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `MEDIA_TOOL_API_BASE` | `https://api.openai.com/v1` | OpenAI 兼容接口基础地址 |
-| `MEDIA_TOOL_API_KEY` | 空 | 接口密钥 |
-| `MEDIA_TOOL_MODEL` | `gpt-4o-mini-transcribe` | 转写模型名 |
+### 1. `doubao-asr`
 
-注意：
+- IME 模式
+- 依赖本地凭据缓存
+- 适合不使用官方文件识别 Key 的场景
 
-- 该后端要求上游实现 `POST /audio/transcriptions`
-- 如果兼容网关没有实现这条接口，`/api/extract` 会返回 400 或 404
+### 2. `doubao-asr-official`
 
-### FunASR 配置
+- 官方文件识别模式
+- 具体走 `flash` 还是 `standard` 取决于 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE`
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `MEDIA_TOOL_FUNASR_MODEL` | `paraformer-zh` | FunASR 主模型 |
-| `MEDIA_TOOL_FUNASR_VAD_MODEL` | `fsmn-vad` | VAD 模型 |
-| `MEDIA_TOOL_FUNASR_PUNC_MODEL` | `ct-punc` | 标点模型 |
-| `MEDIA_TOOL_FUNASR_DEVICE` | `auto` | 运行设备，如 `cpu`、`cuda:0` |
+### 3. `doubao-asr-official-standard`
 
-注意：
+- 强制官方标准版
+- 采用提交任务加轮询查询的方式
 
-- FunASR 在容器内本地运行
-- 依赖 `torch`、`torchaudio`、`funasr`、`modelscope`
-- 默认镜像不会安装这组依赖，需要先设置 `MEDIA_TOOL_INSTALL_FUNASR=true` 再重新构建
-- 镜像体积会明显增加，构建时间也会更长
+### 4. `doubao-asr-official-flash`
 
-### 豆包输入法 ASR 配置
-
-本项目已内置豆包输入法 ASR 所需的最小客户端实现，默认构建不再依赖容器内拉取 GitHub 压缩包。
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `MEDIA_TOOL_DOUBAOIME_MODEL` | `doubaoime-asr` | 元数据中的后端标识 |
-| `MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH` | `/app/runtime/storage/doubaoime/credentials.json` | 凭据缓存文件路径 |
-| `MEDIA_TOOL_DOUBAOIME_DEVICE_ID` | 空 | 可选，手动指定设备 ID |
-| `MEDIA_TOOL_DOUBAOIME_TOKEN` | 空 | 可选，手动指定 Token |
-| `MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION` | `true` | 是否自动加标点 |
-
-注意：
-
-- 首次运行时，如果未提供 `device_id` 与 `token`，库可能自动注册设备并缓存凭据
-- 容器中已安装 `libopus0`
-- 该能力属于非官方接口方案，稳定性取决于上游协议是否变化
+- 强制官方极速版
+- 单次请求返回，延迟更低
 
 ## Web UI
 
-启动后直接访问：
+启动后访问：
 
 ```text
 http://localhost:8000/
@@ -191,37 +182,31 @@ http://localhost:8000/
 
 ### 当前界面工作流
 
-Web UI 已改为“解析 -> 预览 -> 提取”的操作流：
+1. 粘贴分享文案或链接
+2. 选择 OpenTypeless 模型
+3. 根据模型填写对应参数
+4. 点击“解析链接”查看媒体结果
+5. 在预览区域按需下载视频、音频、封面或图集
+6. 点击“提取文案”获取转写结果
 
-1. 在“任务参数”区域粘贴分享文案或链接
-2. 选择转写后端：`openai`、`funasr` 或 `doubaoime`
-3. 填写对应参数
-4. 点击“解析链接”
-5. 在“媒体预览与单项下载”区域直接查看并下载需要的资源
-6. 如果需要文案，再点击“提取文案”
+### 当前界面可配置项
 
-### Web UI 能做什么
+- OpenTypeless 模型
+- IME 凭据文件
+- IME 设备 ID
+- IME Token
+- 官方默认模式
+- 官方 App Key
+- 官方 Access Key
+- 官方 UID
 
-- 粘贴短视频分享链接
-- 切换三种转写后端
-- 配置 API 地址、密钥、模型名
-- 配置 FunASR 参数
-- 配置豆包凭据路径、设备 ID、Token、自动标点
-- 查看解析结果摘要
-- 预览视频
-- 预览音频
-- 预览封面
-- 预览图集
-- 单独下载视频、音频、封面或图集图片
-- 复制转写文案
+### 当前界面特性
 
-### 当前 UI 交互说明
-
-- 已取消独立“下载资源”主按钮
-- 下载入口改为预览卡片里的单项下载按钮
-- 解析摘要里不再展示作者信息
-- 媒体预览和下载都通过同源 `/api/asset` 接口代理
-- 转写使用的临时视频与音频文件在服务端完成后自动删除
+- 不再提供旧的后端切换
+- 不再提供独立“下载资源”大按钮
+- 下载入口位于各资源卡片内部
+- 解析摘要中不展示作者
+- 转写完成后自动删除临时视频和中间音频文件
 
 ## HTTP API
 
@@ -247,24 +232,6 @@ curl http://localhost:8000/api/health
 }
 ```
 
-### `POST /api/download`
-
-该接口仍然保留，适合脚本或批处理使用：
-
-```json
-{
-  "text": "https://www.douyin.com/video/7396822576074460467",
-  "save_video": true,
-  "save_cover": true,
-  "save_images": true
-}
-```
-
-注意：
-
-- Web UI 已不再直接使用这个接口
-- 浏览器界面改为通过 `/api/asset` 做预览和单项下载
-
 ### `GET /api/asset`
 
 用于媒体预览与单项下载。
@@ -275,82 +242,43 @@ curl http://localhost:8000/api/health
 | --- | --- | --- |
 | `text` | 是 | 原始分享文案或链接 |
 | `kind` | 是 | `video`、`audio`、`cover`、`image` |
-| `index` | 否 | 图集索引，仅 `kind=image` 时使用，从 `0` 开始 |
+| `index` | 否 | 图集索引，仅 `kind=image` 时使用 |
 | `disposition` | 否 | `inline` 或 `attachment` |
-
-#### 预览视频
-
-```text
-GET /api/asset?text=https%3A%2F%2Fwww.douyin.com%2Fvideo%2F7396822576074460467&kind=video&disposition=inline
-```
-
-#### 下载封面
-
-```text
-GET /api/asset?text=https%3A%2F%2Fwww.douyin.com%2Fvideo%2F7396822576074460467&kind=cover&disposition=attachment
-```
-
-#### 下载第 1 张图集图片
-
-```text
-GET /api/asset?text=https%3A%2F%2Fexample.com%2Fpost&kind=image&index=0&disposition=attachment
-```
 
 ### `POST /api/extract`
 
-#### OpenAI 兼容后端示例
+IME 模式示例：
 
 ```json
 {
   "text": "https://www.douyin.com/video/7396822576074460467",
-  "backend": "openai",
-  "api_base": "https://api.openai.com/v1",
-  "api_key": "sk-xxx",
-  "model": "gpt-4o-mini-transcribe",
-  "save_transcript": true,
-  "save_video": false,
-  "save_cover": false,
-  "save_images": false
+  "model": "doubao-asr",
+  "opentypeless_credential_path": "/app/runtime/storage/opentypeless/credentials.json",
+  "save_transcript": true
 }
 ```
 
-#### FunASR 后端示例
+官方极速版示例：
 
 ```json
 {
   "text": "https://www.douyin.com/video/7396822576074460467",
-  "backend": "funasr",
-  "model": "paraformer-zh",
-  "funasr_vad_model": "fsmn-vad",
-  "funasr_punc_model": "ct-punc",
-  "funasr_device": "cpu",
-  "save_transcript": true,
-  "save_video": false,
-  "save_cover": false,
-  "save_images": false
+  "model": "doubao-asr-official-flash",
+  "opentypeless_official_app_key": "your-app-key",
+  "opentypeless_official_access_key": "your-access-key",
+  "opentypeless_official_uid": "opentypeless",
+  "save_transcript": true
 }
 ```
 
-#### 豆包输入法 ASR 后端示例
+返回中的 `transcription` 字段会包含：
 
-```json
-{
-  "text": "https://www.douyin.com/video/7396822576074460467",
-  "backend": "doubaoime",
-  "doubaoime_credential_path": "/app/runtime/storage/doubaoime/credentials.json",
-  "doubaoime_enable_punctuation": true,
-  "save_transcript": true,
-  "save_video": false,
-  "save_cover": false,
-  "save_images": false
-}
-```
-
-说明：
-
-- `transcription` 字段会返回当前后端及其关键元数据
-- 转写过程中下载的视频和抽取的音频文件会放在临时目录
-- 转写结束后这些临时文件会自动删除
+- `backend`
+- `model`
+- `mode`
+- `credential_path`
+- `device_id`
+- `official_uid`
 
 ## CLI
 
@@ -366,22 +294,16 @@ python cli.py parse -t "https://www.douyin.com/video/7396822576074460467"
 python cli.py download -t "https://www.douyin.com/video/7396822576074460467"
 ```
 
-### OpenAI 兼容后端提取
+### IME 模式提取
 
 ```powershell
-python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --backend openai --api-base https://api.openai.com/v1 --api-key sk-xxx --model gpt-4o-mini-transcribe
+python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --model doubao-asr --credential-path ./credentials.json
 ```
 
-### FunASR 提取
+### 官方极速版提取
 
 ```powershell
-python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --backend funasr --model paraformer-zh --funasr-vad-model fsmn-vad --funasr-punc-model ct-punc --funasr-device cpu
-```
-
-### 豆包输入法 ASR 提取
-
-```powershell
-python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --backend doubaoime --doubaoime-credential-path ./credentials.json
+python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --model doubao-asr-official-flash --official-app-key your-app-key --official-access-key your-access-key
 ```
 
 ## MCP Server
@@ -400,82 +322,54 @@ python mcp_server.py
 
 ## 本地直接运行
 
-如果不使用 Docker，也可以直接运行：
-
 ```powershell
 pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 8051
 ```
 
-如果你要在本机启用 `funasr` 后端，还需要额外执行：
-
-```powershell
-pip install -r requirements-funasr.txt
-```
-
 额外要求：
 
 - 本机需要安装 `ffmpeg`
-- 如果启用 `doubaoime`，系统还需要可用的 `libopus` 运行库
+- IME 模式需要系统可用的 `libopus` 运行库
 
 ## 常见问题
 
-### 1. `/api/extract` 返回 404
+### 1. `docker compose build` 失败
 
-如果你使用的是 `openai` 后端，这通常意味着你的上游服务没有实现：
+建议先执行：
 
-```text
-POST /audio/transcriptions
+```powershell
+docker compose build --no-cache --progress=plain
 ```
 
-这种情况下请改用：
+如果是 Python 包下载失败：
 
-- 真正支持音频转写的 OpenAI 兼容服务
-- `funasr`
-- `doubaoime`
+- 检查 `MEDIA_TOOL_PIP_INDEX_URL`
+- 改为可用镜像后重试
 
-### 2. 提示找不到 `ffmpeg`
+### 2. 官方模式返回缺少配置
+
+请确认已填写：
+
+- `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY`
+- `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY`
+
+### 3. IME 模式转写失败
+
+建议确认：
+
+- `MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH` 所在目录可写
+- 如凭据已失效，可删除旧凭据文件后重试
+- 容器已重新执行 `docker compose build --no-cache`
+
+### 4. 提示找不到 `ffmpeg`
 
 非 Docker 部署时，需要自行安装 `ffmpeg` 并加入 `PATH`。
 
 Docker Compose 镜像内已内置 `ffmpeg`。
 
-### 3. 豆包输入法 ASR 首次运行失败
-
-建议先确认：
-
-- 容器已重新执行 `docker compose build --no-cache`
-- `MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH` 所在目录可写
-- 网络能够访问该后端所需的远端服务
-
-### 4. `docker compose build` 卡在 `pip install -r /app/requirements.txt`
-
-先检查 `.env` 里的：
-
-- `MEDIA_TOOL_INSTALL_FUNASR` 是否被设成了 `true`
-
-说明：
-
-- 默认推荐保持 `MEDIA_TOOL_INSTALL_FUNASR=false`，这样只安装基础依赖，构建更稳定
-- 如果你确实需要 `funasr`，再改成 `true` 并执行 `docker compose build --no-cache`
-- 即使未安装 FunASR，项目依然可以使用 `openai` 和 `doubaoime` 两种转写后端
-- 如果服务器网络到 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成可用镜像后重试
-- 如果还失败，建议执行 `docker compose build --no-cache --progress=plain` 查看完整 pip 报错
-
-### 5. 为什么 Web UI 没有“下载资源”大按钮了
-
-这是当前设计调整后的结果。
-
-现在的界面逻辑是：
-
-- 先解析
-- 再直接预览
-- 在每个媒体卡片中按需单独下载
-
-这样可以避免整包下载，操作更细，也更适合预览后再决定是否保存。
-
-### 6. 转写结束后文件会不会堆积
+### 5. 转写结束后文件会不会堆积
 
 不会。
 
-转写时用来抽音频的原始视频和中间音频文件都存放在临时目录，转写完成后会自动删除。只有你显式要求保存的 `transcript.md`、视频、封面或图集文件才会保留。
+转写时使用的原始视频和中间音频只会放在临时目录，完成后自动清理。只有显式要求保存的 `transcript.md`、视频、封面或图集才会保留。

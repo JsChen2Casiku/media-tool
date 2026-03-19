@@ -117,17 +117,15 @@ def extract_transcript(payload: ExtractRequest) -> dict:
         raise ValueError("当前链接没有可转写的视频地址，通常说明这是一条纯图集内容。")
 
     config = TranscriptionConfig.from_values(
-        backend=payload.backend,
-        api_base=payload.api_base,
-        api_key=payload.api_key,
         model=payload.model,
-        funasr_vad_model=payload.funasr_vad_model,
-        funasr_punc_model=payload.funasr_punc_model,
-        funasr_device=payload.funasr_device,
-        doubaoime_credential_path=payload.doubaoime_credential_path,
-        doubaoime_device_id=payload.doubaoime_device_id,
-        doubaoime_token=payload.doubaoime_token,
-        doubaoime_enable_punctuation=payload.doubaoime_enable_punctuation,
+        opentypeless_credential_path=payload.opentypeless_credential_path,
+        opentypeless_device_id=payload.opentypeless_device_id,
+        opentypeless_token=payload.opentypeless_token,
+        opentypeless_default_backend=payload.opentypeless_default_backend,
+        opentypeless_official_mode=payload.opentypeless_official_mode,
+        opentypeless_official_app_key=payload.opentypeless_official_app_key,
+        opentypeless_official_access_key=payload.opentypeless_official_access_key,
+        opentypeless_official_uid=payload.opentypeless_official_uid,
     )
     _ensure_ffmpeg_available()
     transcriber = create_transcriber(config)
@@ -432,20 +430,21 @@ def _extract_audio(video_path: Path, audio_path: Path) -> None:
 
 def _build_transcription_metadata(config: TranscriptionConfig) -> dict:
     payload = {
-        "backend": config.backend,
+        "backend": config.resolved_backend.value,
         "model": config.model,
         "cleanup": "临时视频和音频文件会在转写完成后自动删除",
     }
-    if config.backend == "openai":
-        payload["api_base"] = config.api_base
-    if config.backend == "funasr":
-        payload["vad_model"] = config.funasr_vad_model
-        payload["punc_model"] = config.funasr_punc_model
-        payload["device"] = config.funasr_device
-    if config.backend == "doubaoime":
-        payload["credential_path"] = config.doubaoime_credential_path
-        payload["enable_punctuation"] = config.doubaoime_enable_punctuation
-        payload["device_id"] = config.doubaoime_device_id or None
+    payload["mode"] = (
+        config.resolved_official_mode.value
+        if config.resolved_backend.value == "official"
+        else "ime"
+    )
+    if config.credential_path:
+        payload["credential_path"] = config.credential_path
+    if config.device_id:
+        payload["device_id"] = config.device_id
+    if config.resolved_backend.value == "official":
+        payload["official_uid"] = config.official_uid
     return payload
 
 
@@ -459,7 +458,7 @@ def _build_transcript_markdown(parsed: ParsedMedia, transcript_text: str, config
         f"| 视频 ID | `{parsed.video_id or ''}` |",
         f"| 原始链接 | {parsed.source_url} |",
         f"| 解析时间 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |",
-        f"| 转写后端 | `{config.backend}` |",
+        f"| 转写后端 | `{config.resolved_backend.value}` |",
         f"| 转写模型 | `{config.model}` |",
         "",
         "## 文案",

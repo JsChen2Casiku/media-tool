@@ -16,10 +16,6 @@ LOG_PATH = LOG_ROOT
 MAX_CACHE_SIZE_MB = int(os.getenv("MAX_CACHE_SIZE_MB", "15"))
 MAX_CACHE_SIZE_BYTES = MAX_CACHE_SIZE_MB * 1024 * 1024
 REQUEST_TIMEOUT = int(os.getenv("MEDIA_TOOL_REQUEST_TIMEOUT", "30"))
-TRANSCRIPTION_TIMEOUT = int(os.getenv("MEDIA_TOOL_TRANSCRIPTION_TIMEOUT", "300"))
-DEFAULT_API_BASE = os.getenv("MEDIA_TOOL_API_BASE", "https://api.openai.com/v1")
-DEFAULT_MODEL = os.getenv("MEDIA_TOOL_MODEL", "gpt-4o-mini-transcribe")
-DEFAULT_API_KEY = os.getenv("MEDIA_TOOL_API_KEY", "")
 
 PLATFORM_LABELS: Final[dict[str, str]] = {
     "xiaohongshu": "小红书",

@@ -1,6 +1,5 @@
 FROM python:3.11-slim-bookworm
 
-ARG INSTALL_FUNASR=false
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ARG PIP_EXTRA_INDEX_URL=
 
@@ -33,12 +32,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/requirements.txt
-COPY requirements-funasr.txt /app/requirements-funasr.txt
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install --upgrade setuptools wheel \
-    && python -m pip install --prefer-binary -r /app/requirements.txt \
-    && if [ "$INSTALL_FUNASR" = "true" ]; then python -m pip install --prefer-binary -r /app/requirements-funasr.txt; fi
+    && python -m pip install --prefer-binary -r /app/requirements.txt
 
 COPY . /app
 
