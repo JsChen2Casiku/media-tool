@@ -17,8 +17,8 @@ services:
       MEDIA_TOOL_TRANSCRIPTION_TIMEOUT: ${MEDIA_TOOL_TRANSCRIPTION_TIMEOUT:-300}
       MAX_CACHE_SIZE_MB: ${MAX_CACHE_SIZE_MB:-15}
     volumes:
-      - media_tool_storage:/app/runtime/storage
-      - media_tool_logs:/app/runtime/logs
+      - ./media_tool_storage:/app/runtime/storage
+      - ./media_tool_logs:/app/runtime/logs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8051/api/health', timeout=5).read()"]
       interval: 30s
@@ -26,6 +26,6 @@ services:
       retries: 3
       start_period: 15s
 
-volumes:
-  media_tool_storage:
-  media_tool_logs:
+#volumes:
+#  media_tool_storage:
+#  media_tool_logs:
