@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.git/
+.gitignore
+.env
+vendor/
+logs/
+static/
+media_tool_core/logs/
+media_tool_core/storage/
+newfile.txt

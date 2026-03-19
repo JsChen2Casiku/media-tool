@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>media-tool</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero-block">
+      <div class="hero-copy">
+        <p class="eyebrow">MEDIA PARSE / DOWNLOAD / TRANSCRIBE</p>
+        <h1>media-tool 可视化控制台</h1>
+        <p class="hero-text">面向短视频链接解析、资源下载与文案提取的一体化工作台。直接调用现有 API，无需额外前端构建步骤，适合本地运行和 Docker Compose 部署。</p>
+        <div class="hero-badges">
+          <span>多平台解析</span>
+          <span>视频 / 封面 / 图集</span>
+          <span>大模型转写配置</span>
+        </div>
+      </div>
+      <div class="hero-panel">
+        <div class="metric-card accent-pink">
+          <span class="metric-label">API 状态</span>
+          <strong id="health-status">检测中</strong>
+          <small id="health-hint">正在检查服务连通性</small>
+        </div>
+        <div class="metric-card accent-orange">
+          <span class="metric-label">运行模式</span>
+          <strong>Web / API / CLI / MCP</strong>
+          <small>同一套能力，共用一套后端</small>
+        </div>
+      </div>
+    </header>
+
+    <main class="dashboard-grid">
+      <section class="panel panel-main">
+        <div class="panel-head">
+          <div>
+            <p class="section-tag">01 / 输入</p>
+            <h2>媒体任务配置</h2>
+          </div>
+          <button class="ghost-button" id="fill-demo" type="button">填充示例</button>
+        </div>
+
+        <label class="field-label" for="media-text">分享文案或链接</label>
+        <textarea id="media-text" class="text-input textarea-input" placeholder="粘贴短视频分享文案、短链或原始链接"></textarea>
+
+        <div class="config-grid">
+          <div>
+            <label class="field-label" for="api-base">API Base</label>
+            <input id="api-base" class="text-input" type="text" placeholder="https://api.openai.com/v1">
+          </div>
+          <div>
+            <label class="field-label" for="api-model">模型名称</label>
+            <input id="api-model" class="text-input" type="text" placeholder="gpt-4o-mini-transcribe">
+          </div>
+          <div class="full-span">
+            <label class="field-label" for="api-key">API Key</label>
+            <input id="api-key" class="text-input" type="password" placeholder="sk-...">
+          </div>
+        </div>
+
+        <div class="toggle-grid">
+          <label class="toggle-card"><input type="checkbox" id="save-video" checked><span>保存视频</span></label>
+          <label class="toggle-card"><input type="checkbox" id="save-cover" checked><span>保存封面</span></label>
+          <label class="toggle-card"><input type="checkbox" id="save-images" checked><span>保存图集</span></label>
+          <label class="toggle-card"><input type="checkbox" id="save-transcript" checked><span>保存 transcript</span></label>
+        </div>
+
+        <div class="action-row">
+          <button class="primary-button" id="parse-action" type="button">解析链接</button>
+          <button class="secondary-button" id="download-action" type="button">下载资源</button>
+          <button class="highlight-button" id="extract-action" type="button">提取文案</button>
+        </div>
+      </section>
+
+      <aside class="panel panel-side">
+        <div class="panel-head">
+          <div>
+            <p class="section-tag">02 / 状态</p>
+            <h2>执行反馈</h2>
+          </div>
+        </div>
+        <div id="status-card" class="status-card idle">
+          <strong id="status-title">等待操作</strong>
+          <p id="status-message">输入链接后，可以先解析媒体信息，再决定是否下载资源或调用大模型提取文案。</p>
+        </div>
+        <div class="tips-card">
+          <h3>使用提示</h3>
+          <ul>
+            <li>先用“解析链接”确认平台、标题、视频地址和图集信息是否正常。</li>
+            <li>提取文案依赖有效的 API Key，并且运行环境内需要可用的 ffmpeg。</li>
+            <li>界面会缓存 API Base、API Key 和模型名称，方便重复测试。</li>
+          </ul>
+        </div>
+      </aside>
+
+      <section class="panel results-panel">
+        <div class="panel-head">
+          <div>
+            <p class="section-tag">03 / 结果</p>
+            <h2>解析与下载结果</h2>
+          </div>
+          <button class="ghost-button" id="clear-results" type="button">清空结果</button>
+        </div>
+        <div id="result-summary" class="summary-grid empty-state">
+          <p>暂无结果</p>
+        </div>
+        <div id="link-grid" class="link-grid"></div>
+      </section>
+
+      <section class="panel transcript-panel">
+        <div class="panel-head">
+          <div>
+            <p class="section-tag">04 / 文案</p>
+            <h2>转写输出</h2>
+          </div>
+          <button class="ghost-button" id="copy-transcript" type="button">复制文案</button>
+        </div>
+        <pre id="transcript-output" class="transcript-box">暂无转写内容</pre>
+      </section>
+    </main>
+  </div>
+
+  <template id="summary-item-template">
+    <div class="summary-item">
+      <span class="summary-key"></span>
+      <strong class="summary-value"></strong>
+    </div>
+  </template>
+
+  <template id="link-card-template">
+    <article class="link-card">
+      <div class="link-card-head">
+        <span class="link-type"></span>
+        <button class="link-copy" type="button">复制</button>
+      </div>
+      <p class="link-url"></p>
+      <a class="link-open" target="_blank" rel="noreferrer">打开链接</a>
+    </article>
+  </template>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
