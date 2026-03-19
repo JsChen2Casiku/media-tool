@@ -47,10 +47,36 @@ const elements = {
   officialUidWrap: qs("#official-uid-wrap"),
 };
 
+function hasElement(element) {
+  return element !== null && element !== undefined;
+}
+
+function getValue(element, fallback = "") {
+  return hasElement(element) ? (element.value ?? fallback) : fallback;
+}
+
+function getTrimmedValue(element, fallback = "") {
+  return getValue(element, fallback).trim();
+}
+
+function setValue(element, value) {
+  if (hasElement(element)) {
+    element.value = value;
+  }
+}
+
+function setText(element, value) {
+  if (hasElement(element)) {
+    element.textContent = value;
+  }
+}
+
 function setStatus(kind, title, message) {
-  elements.statusCard.className = `status-card ${kind}`;
-  elements.statusTitle.textContent = title;
-  elements.statusMessage.textContent = message;
+  if (hasElement(elements.statusCard)) {
+    elements.statusCard.className = `status-card ${kind}`;
+  }
+  setText(elements.statusTitle, title);
+  setText(elements.statusMessage, message);
 }
 
 function safeJsonParse(text) {
@@ -63,14 +89,14 @@ function safeJsonParse(text) {
 
 function saveConfig() {
   const payload = {
-    apiModel: elements.apiModel.value,
-    credentialPath: elements.credentialPath.value.trim(),
-    deviceId: elements.deviceId.value.trim(),
-    token: elements.token.value.trim(),
-    officialMode: elements.officialMode.value,
-    officialAppKey: elements.officialAppKey.value.trim(),
-    officialAccessKey: elements.officialAccessKey.value.trim(),
-    officialUid: elements.officialUid.value.trim(),
+    apiModel: getValue(elements.apiModel, DEFAULTS.model),
+    credentialPath: getTrimmedValue(elements.credentialPath, DEFAULTS.credentialPath),
+    deviceId: getTrimmedValue(elements.deviceId),
+    token: getTrimmedValue(elements.token),
+    officialMode: getValue(elements.officialMode, DEFAULTS.officialMode),
+    officialAppKey: getTrimmedValue(elements.officialAppKey),
+    officialAccessKey: getTrimmedValue(elements.officialAccessKey),
+    officialUid: getTrimmedValue(elements.officialUid, DEFAULTS.officialUid),
   };
   localStorage.setItem("media-tool-config", JSON.stringify(payload));
 }
@@ -79,23 +105,22 @@ function restoreConfig() {
   const raw = localStorage.getItem("media-tool-config");
   const parsed = raw ? safeJsonParse(raw) : {};
 
-  elements.apiModel.value = parsed.apiModel || DEFAULTS.model;
-  elements.credentialPath.value = parsed.credentialPath || DEFAULTS.credentialPath;
-  elements.deviceId.value = parsed.deviceId || "";
-  elements.token.value = parsed.token || "";
-  elements.officialMode.value = parsed.officialMode || DEFAULTS.officialMode;
-  elements.officialAppKey.value = parsed.officialAppKey || "";
-  elements.officialAccessKey.value = parsed.officialAccessKey || "";
-  elements.officialUid.value = parsed.officialUid || DEFAULTS.officialUid;
+  setValue(elements.apiModel, parsed.apiModel || DEFAULTS.model);
+  setValue(elements.credentialPath, parsed.credentialPath || DEFAULTS.credentialPath);
+  setValue(elements.deviceId, parsed.deviceId || "");
+  setValue(elements.token, parsed.token || "");
+  setValue(elements.officialMode, parsed.officialMode || DEFAULTS.officialMode);
+  setValue(elements.officialAppKey, parsed.officialAppKey || "");
+  setValue(elements.officialAccessKey, parsed.officialAccessKey || "");
+  setValue(elements.officialUid, parsed.officialUid || DEFAULTS.officialUid);
 
   syncModelFields(false);
 }
 
 function toggleElement(element, visible) {
-  if (!element) {
-    return;
+  if (hasElement(element)) {
+    element.hidden = !visible;
   }
-  element.hidden = !visible;
 }
 
 function isOfficialModel(model) {
@@ -103,7 +128,7 @@ function isOfficialModel(model) {
 }
 
 function syncModelFields(shouldSave = true) {
-  const model = elements.apiModel.value.trim();
+  const model = getTrimmedValue(elements.apiModel, DEFAULTS.model);
   const official = isOfficialModel(model);
   const genericOfficial = model === "doubao-asr-official";
   const ime = model === "doubao-asr";
@@ -111,17 +136,16 @@ function syncModelFields(shouldSave = true) {
   toggleElement(elements.credentialPathWrap, ime);
   toggleElement(elements.deviceIdWrap, ime);
   toggleElement(elements.tokenWrap, ime);
-
   toggleElement(elements.officialModeWrap, genericOfficial);
   toggleElement(elements.officialAppKeyWrap, official);
   toggleElement(elements.officialAccessKeyWrap, official);
   toggleElement(elements.officialUidWrap, official);
 
-  if (ime && !elements.credentialPath.value.trim()) {
-    elements.credentialPath.value = DEFAULTS.credentialPath;
+  if (ime && !getTrimmedValue(elements.credentialPath)) {
+    setValue(elements.credentialPath, DEFAULTS.credentialPath);
   }
-  if (official && !elements.officialUid.value.trim()) {
-    elements.officialUid.value = DEFAULTS.officialUid;
+  if (official && !getTrimmedValue(elements.officialUid)) {
+    setValue(elements.officialUid, DEFAULTS.officialUid);
   }
 
   if (shouldSave) {
@@ -132,19 +156,19 @@ function syncModelFields(shouldSave = true) {
 function getCommonPayload() {
   saveConfig();
   return {
-    text: elements.text.value.trim(),
-    model: elements.apiModel.value.trim(),
-    opentypeless_credential_path: elements.credentialPath.value.trim(),
-    opentypeless_device_id: elements.deviceId.value.trim(),
-    opentypeless_token: elements.token.value.trim(),
-    opentypeless_official_mode: elements.officialMode.value,
-    opentypeless_official_app_key: elements.officialAppKey.value.trim(),
-    opentypeless_official_access_key: elements.officialAccessKey.value.trim(),
-    opentypeless_official_uid: elements.officialUid.value.trim(),
+    text: getTrimmedValue(elements.text),
+    model: getTrimmedValue(elements.apiModel, DEFAULTS.model),
+    opentypeless_credential_path: getTrimmedValue(elements.credentialPath, DEFAULTS.credentialPath),
+    opentypeless_device_id: getTrimmedValue(elements.deviceId),
+    opentypeless_token: getTrimmedValue(elements.token),
+    opentypeless_official_mode: getValue(elements.officialMode, DEFAULTS.officialMode),
+    opentypeless_official_app_key: getTrimmedValue(elements.officialAppKey),
+    opentypeless_official_access_key: getTrimmedValue(elements.officialAccessKey),
+    opentypeless_official_uid: getTrimmedValue(elements.officialUid, DEFAULTS.officialUid),
     save_video: false,
     save_cover: false,
     save_images: false,
-    save_transcript: elements.saveTranscript.checked,
+    save_transcript: hasElement(elements.saveTranscript) ? !!elements.saveTranscript.checked : true,
   };
 }
 
@@ -178,11 +202,18 @@ function buildAssetUrl(kind, index = null, disposition = "inline") {
 }
 
 function setEmptyPreview(message) {
+  if (!hasElement(elements.previewGrid)) {
+    return;
+  }
   elements.previewGrid.className = "preview-grid empty-state";
   elements.previewGrid.innerHTML = `<p>${message}</p>`;
 }
 
 function renderSummary(media, meta = {}) {
+  if (!hasElement(elements.resultSummary) || !hasElement(elements.summaryTemplate)) {
+    return;
+  }
+
   elements.resultSummary.innerHTML = "";
   elements.resultSummary.className = "summary-grid";
 
@@ -238,6 +269,10 @@ function createActionLinks(kind, index = null, rawUrl = "") {
 }
 
 function renderPreview(media) {
+  if (!hasElement(elements.previewGrid)) {
+    return;
+  }
+
   const cards = [];
 
   if (media.video_url) {
@@ -281,12 +316,7 @@ function renderPreview(media) {
             <h3>封面预览</h3>
           </div>
         </div>
-        <img
-          class="image-preview"
-          src="${buildAssetUrl("cover")}"
-          alt="内容封面预览"
-          loading="lazy"
-        >
+        <img class="image-preview" src="${buildAssetUrl("cover")}" alt="内容封面预览" loading="lazy">
         <p class="asset-url">${escapeHtml(media.cover_url)}</p>
         ${createActionLinks("cover", null, media.cover_url)}
       </article>
@@ -337,6 +367,9 @@ function renderPreview(media) {
 }
 
 function bindPreviewActions() {
+  if (!hasElement(elements.previewGrid)) {
+    return;
+  }
   elements.previewGrid.querySelectorAll(".copy-button").forEach((button) => {
     button.addEventListener("click", async () => {
       const value = button.getAttribute("data-copy") || "";
@@ -357,10 +390,13 @@ function clearResults() {
   state.lastParse = null;
   state.lastTranscript = "";
   state.lastText = "";
-  elements.resultSummary.className = "summary-grid empty-state";
-  elements.resultSummary.innerHTML = "<p>暂无解析结果</p>";
+
+  if (hasElement(elements.resultSummary)) {
+    elements.resultSummary.className = "summary-grid empty-state";
+    elements.resultSummary.innerHTML = "<p>暂无解析结果</p>";
+  }
   setEmptyPreview("解析完成后，这里会展示视频、音频、封面和图集预览。");
-  elements.transcriptOutput.textContent = "暂无转写内容";
+  setText(elements.transcriptOutput, "暂无转写内容");
   setStatus("idle", "等待操作", "先解析媒体信息，再查看预览或发起转写。");
 }
 
@@ -369,14 +405,14 @@ async function checkHealth() {
     const response = await fetch("/api/health");
     const data = await response.json();
     if (response.ok && data.success) {
-      elements.healthStatus.textContent = "在线";
-      elements.healthHint.textContent = "接口正常，可以开始处理媒体。";
+      setText(elements.healthStatus, "在线");
+      setText(elements.healthHint, "接口正常，可以开始处理媒体。");
       return;
     }
     throw new Error("健康检查失败");
   } catch {
-    elements.healthStatus.textContent = "异常";
-    elements.healthHint.textContent = "无法连接到后端接口。";
+    setText(elements.healthStatus, "异常");
+    setText(elements.healthHint, "无法连接到后端接口。");
   }
 }
 
@@ -421,7 +457,7 @@ async function handleExtract() {
       mode: result.data.transcription?.mode,
     });
     renderPreview(result.data.media);
-    elements.transcriptOutput.textContent = state.lastTranscript || "转写接口未返回内容";
+    setText(elements.transcriptOutput, state.lastTranscript || "转写接口未返回内容");
 
     setStatus(
       "success",
@@ -434,7 +470,7 @@ async function handleExtract() {
 }
 
 async function copyTranscript() {
-  const text = state.lastTranscript || elements.transcriptOutput.textContent;
+  const text = state.lastTranscript || (hasElement(elements.transcriptOutput) ? elements.transcriptOutput.textContent : "");
   if (!text || text === "暂无转写内容") {
     setStatus("error", "没有可复制内容", "请先执行文案提取。");
     return;
@@ -445,14 +481,24 @@ async function copyTranscript() {
 }
 
 function bindEvents() {
-  elements.parseAction.addEventListener("click", handleParse);
-  elements.extractAction.addEventListener("click", handleExtract);
-  elements.clearResults.addEventListener("click", clearResults);
-  elements.copyTranscript.addEventListener("click", copyTranscript);
-  elements.fillDemo.addEventListener("click", () => {
-    elements.text.value = "https://www.douyin.com/video/7396822576074460467";
-    setStatus("idle", "已填充示例", "现在可以直接点击解析链接。");
-  });
+  if (hasElement(elements.parseAction)) {
+    elements.parseAction.addEventListener("click", handleParse);
+  }
+  if (hasElement(elements.extractAction)) {
+    elements.extractAction.addEventListener("click", handleExtract);
+  }
+  if (hasElement(elements.clearResults)) {
+    elements.clearResults.addEventListener("click", clearResults);
+  }
+  if (hasElement(elements.copyTranscript)) {
+    elements.copyTranscript.addEventListener("click", copyTranscript);
+  }
+  if (hasElement(elements.fillDemo) && hasElement(elements.text)) {
+    elements.fillDemo.addEventListener("click", () => {
+      elements.text.value = "https://www.douyin.com/video/7396822576074460467";
+      setStatus("idle", "已填充示例", "现在可以直接点击解析链接。");
+    });
+  }
 
   [
     elements.apiModel,
@@ -463,11 +509,15 @@ function bindEvents() {
     elements.officialAppKey,
     elements.officialAccessKey,
     elements.officialUid,
-  ].forEach((input) => {
-    input.addEventListener("change", saveConfig);
-  });
+  ]
+    .filter(hasElement)
+    .forEach((input) => {
+      input.addEventListener("change", saveConfig);
+    });
 
-  elements.apiModel.addEventListener("change", () => syncModelFields(true));
+  if (hasElement(elements.apiModel)) {
+    elements.apiModel.addEventListener("change", () => syncModelFields(true));
+  }
 }
 
 restoreConfig();
