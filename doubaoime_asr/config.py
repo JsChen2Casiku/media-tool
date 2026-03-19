@@ -147,3 +147,17 @@ class ASRConfig:
     def get_token(self) -> str:
         self.ensure_credentials()
         return self.token
+
+    def reset_credentials(self, clear_cached_file: bool = False) -> None:
+        self._credentials = None
+        self._initialized = False
+        self.device_id = None
+        self.token = None
+
+        if clear_cached_file and self.credential_path is not None:
+            path = Path(self.credential_path).expanduser()
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                pass

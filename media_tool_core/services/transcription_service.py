@@ -109,7 +109,9 @@ class TranscriptionConfig:
 class OpenAICompatibleTranscriber:
     def __init__(self, config: TranscriptionConfig):
         if not config.api_key:
-            raise ValueError("缺少 API Key，请通过参数或环境变量 MEDIA_TOOL_API_KEY 提供。")
+            raise ValueError(
+                "缺少 API Key，请通过参数或环境变量 MEDIA_TOOL_API_KEY 提供。"
+            )
         self.config = config
 
     def transcribe(self, audio_path: Path) -> str:
@@ -223,10 +225,36 @@ class DoubaoIMETranscriber:
             from doubaoime_asr import ASRConfig, transcribe
         except ModuleNotFoundError as exc:
             raise ValueError(
-                "当前环境未安装 doubaoime-asr 依赖，请重新安装 requirements.txt 或重建 Docker 镜像。"
+                "当前环境未安装 doubaoime ASR 依赖，请重新安装 requirements.txt 或重建 Docker 镜像。"
             ) from exc
 
-        asr_config = ASRConfig(
+        asr_config = self._build_asr_config(ASRConfig)
+        allow_refresh_retry = not self.config.doubaoime_device_id and not self.config.doubaoime_token
+
+        try:
+            text = self._run_transcribe(transcribe, asr_config, audio_path)
+        except Exception as first_exc:
+            if allow_refresh_retry and self._should_refresh_credentials(first_exc):
+                asr_config.reset_credentials(clear_cached_file=True)
+                try:
+                    text = self._run_transcribe(transcribe, asr_config, audio_path)
+                except Exception as retry_exc:
+                    raise ValueError(
+                        "豆包输入法 ASR 转写失败："
+                        f"{self._format_doubao_error(retry_exc)}；"
+                        "已尝试清理本地凭据并重新注册设备，但仍未成功。"
+                    ) from retry_exc
+            else:
+                raise ValueError(
+                    f"豆包输入法 ASR 转写失败：{self._format_doubao_error(first_exc)}"
+                ) from first_exc
+
+        if not text:
+            raise ValueError("豆包输入法 ASR 未返回任何转写结果。")
+        return text.strip()
+
+    def _build_asr_config(self, asr_config_cls):
+        return asr_config_cls(
             credential_path=self.config.doubaoime_credential_path or None,
             device_id=self.config.doubaoime_device_id or None,
             token=self.config.doubaoime_token or None,
@@ -235,14 +263,33 @@ class DoubaoIMETranscriber:
             enable_punctuation=self.config.doubaoime_enable_punctuation,
         )
 
-        try:
-            text = _run_coroutine(transcribe(str(audio_path), config=asr_config, realtime=False))
-        except Exception as exc:
-            raise ValueError(f"豆包输入法 ASR 转写失败: {exc}") from exc
+    def _run_transcribe(self, transcribe_func, asr_config, audio_path: Path) -> str:
+        return _run_coroutine(transcribe_func(str(audio_path), config=asr_config, realtime=False))
 
-        if not text:
-            raise ValueError("豆包输入法 ASR 未返回任何转写结果。")
-        return text.strip()
+    def _should_refresh_credentials(self, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(
+            keyword in message
+            for keyword in ("internalerror", "invalid token", "token", "starttask", "startsession")
+        )
+
+    def _format_doubao_error(self, exc: Exception) -> str:
+        response = getattr(exc, "response", None)
+        parts = [str(exc).strip() or exc.__class__.__name__]
+
+        if response is not None:
+            response_type = getattr(getattr(response, "type", None), "name", None)
+            if response_type:
+                parts.append(f"阶段={response_type}")
+            error_msg = getattr(response, "error_msg", "")
+            if error_msg and error_msg not in parts[0]:
+                parts.append(f"详情={error_msg}")
+
+        credential_path = (self.config.doubaoime_credential_path or "").strip()
+        if credential_path:
+            parts.append(f"凭据文件={credential_path}")
+
+        return "，".join(parts)
 
 
 def _run_coroutine(coroutine):
