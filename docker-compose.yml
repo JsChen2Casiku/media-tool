@@ -8,9 +8,19 @@ services:
     ports:
       - "8000:8051"
     environment:
+      MEDIA_TOOL_TRANSCRIBER_BACKEND: ${MEDIA_TOOL_TRANSCRIBER_BACKEND:-openai}
       MEDIA_TOOL_API_BASE: ${MEDIA_TOOL_API_BASE:-https://api.openai.com/v1}
       MEDIA_TOOL_API_KEY: ${MEDIA_TOOL_API_KEY:-}
       MEDIA_TOOL_MODEL: ${MEDIA_TOOL_MODEL:-gpt-4o-mini-transcribe}
+      MEDIA_TOOL_FUNASR_MODEL: ${MEDIA_TOOL_FUNASR_MODEL:-paraformer-zh}
+      MEDIA_TOOL_FUNASR_VAD_MODEL: ${MEDIA_TOOL_FUNASR_VAD_MODEL:-fsmn-vad}
+      MEDIA_TOOL_FUNASR_PUNC_MODEL: ${MEDIA_TOOL_FUNASR_PUNC_MODEL:-ct-punc}
+      MEDIA_TOOL_FUNASR_DEVICE: ${MEDIA_TOOL_FUNASR_DEVICE:-auto}
+      MEDIA_TOOL_DOUBAOIME_MODEL: ${MEDIA_TOOL_DOUBAOIME_MODEL:-doubaoime-asr}
+      MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH: ${MEDIA_TOOL_DOUBAOIME_CREDENTIAL_PATH:-/app/runtime/storage/doubaoime/credentials.json}
+      MEDIA_TOOL_DOUBAOIME_DEVICE_ID: ${MEDIA_TOOL_DOUBAOIME_DEVICE_ID:-}
+      MEDIA_TOOL_DOUBAOIME_TOKEN: ${MEDIA_TOOL_DOUBAOIME_TOKEN:-}
+      MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION: ${MEDIA_TOOL_DOUBAOIME_ENABLE_PUNCTUATION:-true}
       MEDIA_TOOL_STORAGE_ROOT: /app/runtime/storage
       MEDIA_TOOL_LOG_ROOT: /app/runtime/logs
       MEDIA_TOOL_REQUEST_TIMEOUT: ${MEDIA_TOOL_REQUEST_TIMEOUT:-30}
@@ -25,7 +35,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-#volumes:
-#  media_tool_storage:
-#  media_tool_logs:

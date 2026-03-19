@@ -6,117 +6,182 @@
   <title>media-tool</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/styles.css">
 </head>
 <body>
   <div class="page-shell">
-    <header class="hero-block">
+    <header class="hero-panel">
       <div class="hero-copy">
-        <p class="eyebrow">MEDIA PARSE / DOWNLOAD / TRANSCRIBE</p>
-        <h1>media-tool 可视化控制台</h1>
-        <p class="hero-text">面向短视频链接解析、资源下载与文案提取的一体化工作台。直接调用现有 API，无需额外前端构建步骤，适合本地运行和 Docker Compose 部署。</p>
-        <div class="hero-badges">
-          <span>多平台解析</span>
-          <span>视频 / 封面 / 图集</span>
-          <span>大模型转写配置</span>
+        <p class="eyebrow">MEDIA INTELLIGENCE CONSOLE</p>
+        <h1>解析、预览、提取文案，一套界面完成。</h1>
+        <p class="hero-text">
+          面向短视频内容处理的统一控制台。先解析媒体结构，再直接预览视频、音频、封面和图集，
+          需要什么就单独下载什么，不再走整包下载流程。
+        </p>
+        <div class="hero-tags">
+          <span>同源媒体预览</span>
+          <span>单项下载</span>
+          <span>OpenAI / FunASR / DoubaoIME</span>
         </div>
       </div>
-      <div class="hero-panel">
-        <div class="metric-card accent-pink">
-          <span class="metric-label">API 状态</span>
+
+      <div class="hero-metrics">
+        <article class="metric-card">
+          <span class="metric-label">服务状态</span>
           <strong id="health-status">检测中</strong>
-          <small id="health-hint">正在检查服务连通性</small>
-        </div>
-        <div class="metric-card accent-orange">
-          <span class="metric-label">运行模式</span>
-          <strong>Web / API / CLI / MCP</strong>
-          <small>同一套能力，共用一套后端</small>
-        </div>
+          <small id="health-hint">正在检查接口可用性</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">工作流</span>
+          <strong>解析 -> 预览 -> 提取</strong>
+          <small>转写临时文件自动清理，不保留中间下载产物</small>
+        </article>
       </div>
     </header>
 
     <main class="dashboard-grid">
-      <section class="panel panel-main">
+      <section class="panel control-panel">
         <div class="panel-head">
           <div>
-            <p class="section-tag">01 / 输入</p>
-            <h2>媒体任务配置</h2>
+            <p class="section-tag">01 / 控制台</p>
+            <h2>任务参数</h2>
           </div>
           <button class="ghost-button" id="fill-demo" type="button">填充示例</button>
         </div>
 
         <label class="field-label" for="media-text">分享文案或链接</label>
-        <textarea id="media-text" class="text-input textarea-input" placeholder="粘贴短视频分享文案、短链或原始链接"></textarea>
+        <textarea
+          id="media-text"
+          class="text-input textarea-input"
+          placeholder="粘贴短视频分享文案、短链或原始链接"
+        ></textarea>
 
         <div class="config-grid">
           <div>
-            <label class="field-label" for="api-base">API Base</label>
-            <input id="api-base" class="text-input" type="text" placeholder="https://api.openai.com/v1">
+            <label class="field-label" for="backend">转写后端</label>
+            <select id="backend" class="text-input">
+              <option value="openai">openai</option>
+              <option value="funasr">funasr</option>
+              <option value="doubaoime">doubaoime</option>
+            </select>
           </div>
+
           <div>
             <label class="field-label" for="api-model">模型名称</label>
             <input id="api-model" class="text-input" type="text" placeholder="gpt-4o-mini-transcribe">
           </div>
-          <div class="full-span">
+
+          <div id="api-base-wrap">
+            <label class="field-label" for="api-base">API Base</label>
+            <input id="api-base" class="text-input" type="text" placeholder="https://api.openai.com/v1">
+          </div>
+
+          <div id="funasr-device-wrap">
+            <label class="field-label" for="funasr-device">FunASR 设备</label>
+            <input id="funasr-device" class="text-input" type="text" placeholder="auto / cpu / cuda:0">
+          </div>
+
+          <div class="full-span" id="api-key-wrap">
             <label class="field-label" for="api-key">API Key</label>
             <input id="api-key" class="text-input" type="password" placeholder="sk-...">
+          </div>
+
+          <div id="funasr-vad-wrap">
+            <label class="field-label" for="funasr-vad-model">FunASR VAD 模型</label>
+            <input id="funasr-vad-model" class="text-input" type="text" placeholder="fsmn-vad">
+          </div>
+
+          <div id="funasr-punc-wrap">
+            <label class="field-label" for="funasr-punc-model">FunASR 标点模型</label>
+            <input id="funasr-punc-model" class="text-input" type="text" placeholder="ct-punc">
+          </div>
+
+          <div class="full-span" id="doubaoime-credential-wrap">
+            <label class="field-label" for="doubaoime-credential-path">豆包凭据文件</label>
+            <input id="doubaoime-credential-path" class="text-input" type="text" placeholder="/app/runtime/storage/doubaoime/credentials.json">
+          </div>
+
+          <div id="doubaoime-device-wrap">
+            <label class="field-label" for="doubaoime-device-id">豆包设备 ID</label>
+            <input id="doubaoime-device-id" class="text-input" type="text" placeholder="可选">
+          </div>
+
+          <div id="doubaoime-token-wrap">
+            <label class="field-label" for="doubaoime-token">豆包 Token</label>
+            <input id="doubaoime-token" class="text-input" type="password" placeholder="可选">
           </div>
         </div>
 
         <div class="toggle-grid">
-          <label class="toggle-card"><input type="checkbox" id="save-video" checked><span>保存视频</span></label>
-          <label class="toggle-card"><input type="checkbox" id="save-cover" checked><span>保存封面</span></label>
-          <label class="toggle-card"><input type="checkbox" id="save-images" checked><span>保存图集</span></label>
-          <label class="toggle-card"><input type="checkbox" id="save-transcript" checked><span>保存 transcript</span></label>
+          <label class="toggle-card">
+            <input type="checkbox" id="save-transcript" checked>
+            <span>保存 transcript</span>
+          </label>
+          <label class="toggle-card" id="doubaoime-punctuation-card">
+            <input type="checkbox" id="doubaoime-enable-punctuation" checked>
+            <span>豆包自动标点</span>
+          </label>
         </div>
 
         <div class="action-row">
           <button class="primary-button" id="parse-action" type="button">解析链接</button>
-          <button class="secondary-button" id="download-action" type="button">下载资源</button>
           <button class="highlight-button" id="extract-action" type="button">提取文案</button>
         </div>
       </section>
 
-      <aside class="panel panel-side">
+      <aside class="panel side-panel">
         <div class="panel-head">
           <div>
             <p class="section-tag">02 / 状态</p>
             <h2>执行反馈</h2>
           </div>
         </div>
-        <div id="status-card" class="status-card idle">
+
+        <div id="status-card" class="status-card idle" role="alert" aria-live="polite">
           <strong id="status-title">等待操作</strong>
-          <p id="status-message">输入链接后，可以先解析媒体信息，再决定是否下载资源或调用大模型提取文案。</p>
+          <p id="status-message">先解析媒体信息，再查看预览或发起转写。</p>
         </div>
+
         <div class="tips-card">
-          <h3>使用提示</h3>
+          <h3>说明</h3>
           <ul>
-            <li>先用“解析链接”确认平台、标题、视频地址和图集信息是否正常。</li>
-            <li>提取文案依赖有效的 API Key，并且运行环境内需要可用的 ffmpeg。</li>
-            <li>界面会缓存 API Base、API Key 和模型名称，方便重复测试。</li>
+            <li>媒体预览和下载均通过同源接口代理，不再依赖独立“下载资源”按钮。</li>
+            <li>视频、音频、封面、图集都支持单独下载，按需获取。</li>
+            <li>转写时用到的视频和抽出的音频文件只落在临时目录，完成后自动删除。</li>
           </ul>
         </div>
       </aside>
 
-      <section class="panel results-panel">
+      <section class="panel summary-panel">
         <div class="panel-head">
           <div>
-            <p class="section-tag">03 / 结果</p>
-            <h2>解析与下载结果</h2>
+            <p class="section-tag">03 / 解析结果</p>
+            <h2>媒体信息</h2>
           </div>
           <button class="ghost-button" id="clear-results" type="button">清空结果</button>
         </div>
         <div id="result-summary" class="summary-grid empty-state">
-          <p>暂无结果</p>
+          <p>暂无解析结果</p>
         </div>
-        <div id="link-grid" class="link-grid"></div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="panel-head">
+          <div>
+            <p class="section-tag">04 / 预览</p>
+            <h2>媒体预览与单项下载</h2>
+          </div>
+        </div>
+        <div id="preview-grid" class="preview-grid empty-state">
+          <p>解析完成后，这里会展示视频、音频、封面和图集预览。</p>
+        </div>
       </section>
 
       <section class="panel transcript-panel">
         <div class="panel-head">
           <div>
-            <p class="section-tag">04 / 文案</p>
+            <p class="section-tag">05 / 文案</p>
             <h2>转写输出</h2>
           </div>
           <button class="ghost-button" id="copy-transcript" type="button">复制文案</button>
@@ -127,20 +192,9 @@
   </div>
 
   <template id="summary-item-template">
-    <div class="summary-item">
+    <article class="summary-item">
       <span class="summary-key"></span>
       <strong class="summary-value"></strong>
-    </div>
-  </template>
-
-  <template id="link-card-template">
-    <article class="link-card">
-      <div class="link-card-head">
-        <span class="link-type"></span>
-        <button class="link-copy" type="button">复制</button>
-      </div>
-      <p class="link-url"></p>
-      <a class="link-open" target="_blank" rel="noreferrer">打开链接</a>
     </article>
   </template>
 

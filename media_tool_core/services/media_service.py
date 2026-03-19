@@ -1,3 +1,4 @@
+import mimetypes
 import os
 import re
 import shutil
@@ -6,15 +7,16 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
+from fastapi.responses import StreamingResponse
 
 from media_tool_core.configs.general_constants import DOMAIN_TO_PLATFORM, PROJECT_ROOT, get_platform_label
 from media_tool_core.configs.logging_config import get_logger
 from media_tool_core.downloader_factory import DownloaderFactory
 from media_tool_core.schemas import DownloadRequest, ExtractRequest
-from media_tool_core.services.transcription_service import OpenAICompatibleTranscriber, TranscriptionConfig
+from media_tool_core.services.transcription_service import TranscriptionConfig, create_transcriber
 from media_tool_core.utils.web_fetcher import UrlParser, WebFetcher
 
 logger = get_logger(__name__)
@@ -49,6 +51,14 @@ class ParsedMedia:
         payload = asdict(self)
         payload["is_image_post"] = self.is_image_post
         return payload
+
+
+@dataclass
+class ResolvedAsset:
+    url: str
+    filename: str
+    referer: str
+    headers: Optional[dict]
 
 
 def parse_media(text: str) -> dict:
@@ -106,15 +116,28 @@ def extract_transcript(payload: ExtractRequest) -> dict:
     if not parsed.video_url:
         raise ValueError("当前链接没有可转写的视频地址，通常说明这是一条纯图集内容。")
 
-    config = TranscriptionConfig.from_values(payload.api_base, payload.api_key, payload.model)
+    config = TranscriptionConfig.from_values(
+        backend=payload.backend,
+        api_base=payload.api_base,
+        api_key=payload.api_key,
+        model=payload.model,
+        funasr_vad_model=payload.funasr_vad_model,
+        funasr_punc_model=payload.funasr_punc_model,
+        funasr_device=payload.funasr_device,
+        doubaoime_credential_path=payload.doubaoime_credential_path,
+        doubaoime_device_id=payload.doubaoime_device_id,
+        doubaoime_token=payload.doubaoime_token,
+        doubaoime_enable_punctuation=payload.doubaoime_enable_punctuation,
+    )
     _ensure_ffmpeg_available()
+    transcriber = create_transcriber(config)
 
     export_dir = _prepare_export_dir(payload.output_dir, parsed.video_id, parsed.title)
     temp_dir = TEMP_ROOT / str(uuid.uuid4())
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     video_path = temp_dir / "source.mp4"
-    audio_path = temp_dir / "source.mp3"
+    audio_path = temp_dir / "source.wav"
 
     try:
         _download_to_path(
@@ -124,15 +147,16 @@ def extract_transcript(payload: ExtractRequest) -> dict:
             referer=parsed.real_url,
         )
         _extract_audio(video_path, audio_path)
-
-        transcriber = OpenAICompatibleTranscriber(config)
         transcript_text = transcriber.transcribe(audio_path)
 
         saved_files = {"transcript": None, "video": None, "cover": None, "images": []}
 
         if payload.save_transcript:
             transcript_path = export_dir / "transcript.md"
-            transcript_path.write_text(_build_transcript_markdown(parsed, transcript_text, config), encoding="utf-8")
+            transcript_path.write_text(
+                _build_transcript_markdown(parsed, transcript_text, config),
+                encoding="utf-8",
+            )
             saved_files["transcript"] = str(transcript_path)
 
         if payload.save_video:
@@ -168,13 +192,60 @@ def extract_transcript(payload: ExtractRequest) -> dict:
             "transcript": transcript_text,
             "output_dir": str(export_dir),
             "saved_files": saved_files,
-            "transcription": {
-                "api_base": config.api_base,
-                "model": config.model,
-            },
+            "transcription": _build_transcription_metadata(config),
         }
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def stream_media_asset(
+    text: str,
+    kind: str,
+    index: int | None = None,
+    disposition: str = "inline",
+    range_header: str | None = None,
+):
+    parsed, downloader = _resolve_media_with_downloader(text)
+    asset = _resolve_asset(parsed, downloader, kind, index)
+
+    request_headers = _build_headers(asset.headers, asset.referer)
+    if range_header:
+        request_headers["Range"] = range_header
+
+    upstream = requests.get(
+        asset.url,
+        headers=request_headers,
+        stream=True,
+        allow_redirects=True,
+        timeout=REQUEST_TIMEOUT,
+    )
+    upstream.raise_for_status()
+
+    media_type = upstream.headers.get("Content-Type") or _guess_media_type(asset.filename)
+    response_headers = {
+        "Content-Disposition": _build_content_disposition(asset.filename, disposition),
+        "Cache-Control": "no-store",
+    }
+
+    for header_name in ["Accept-Ranges", "Content-Length", "Content-Range", "ETag", "Last-Modified"]:
+        header_value = upstream.headers.get(header_name)
+        if header_value:
+            response_headers[header_name] = header_value
+
+    def body_iter():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    return StreamingResponse(
+        body_iter(),
+        status_code=upstream.status_code,
+        media_type=media_type,
+        headers=response_headers,
+    )
 
 
 def _resolve_media_with_downloader(text: str):
@@ -210,6 +281,41 @@ def _resolve_media_with_downloader(text: str):
         image_list=[UrlParser.convert_to_https(item) for item in content["image_list"]],
     )
     return parsed, downloader
+
+
+def _resolve_asset(parsed: ParsedMedia, downloader, kind: str, index: int | None = None) -> ResolvedAsset:
+    normalized_kind = (kind or "").strip().lower()
+    headers = getattr(downloader, "headers", None)
+    base_name = _safe_name(parsed.title or parsed.video_id or "media")
+
+    if normalized_kind == "video":
+        if not parsed.video_url:
+            raise ValueError("当前内容没有可预览或下载的视频地址。")
+        ext = _guess_extension(parsed.video_url, ".mp4")
+        return ResolvedAsset(parsed.video_url, f"{base_name}_video{ext}", parsed.real_url, headers)
+
+    if normalized_kind == "audio":
+        if not parsed.audio_url:
+            raise ValueError("当前内容没有可预览或下载的音频地址。")
+        ext = _guess_extension(parsed.audio_url, ".mp3")
+        return ResolvedAsset(parsed.audio_url, f"{base_name}_audio{ext}", parsed.real_url, headers)
+
+    if normalized_kind == "cover":
+        if not parsed.cover_url:
+            raise ValueError("当前内容没有可预览或下载的封面地址。")
+        ext = _guess_extension(parsed.cover_url, ".jpg")
+        return ResolvedAsset(parsed.cover_url, f"{base_name}_cover{ext}", parsed.real_url, headers)
+
+    if normalized_kind == "image":
+        if index is None:
+            raise ValueError("图集预览或下载需要提供 index 参数。")
+        if index < 0 or index >= len(parsed.image_list):
+            raise ValueError("图集索引超出范围。")
+        image_url = parsed.image_list[index]
+        ext = _guess_extension(image_url, ".jpg")
+        return ResolvedAsset(image_url, f"{base_name}_image_{index + 1:02d}{ext}", parsed.real_url, headers)
+
+    raise ValueError(f"不支持的资源类型: {kind}")
 
 
 def _fetch_with_retry(downloader, platform_key: str) -> dict:
@@ -285,7 +391,7 @@ def _download_to_path(url: str, target_path: Path, headers: Optional[dict] = Non
         timeout=REQUEST_TIMEOUT,
     )
     response.raise_for_status()
-    with open(target_path, "wb") as file_obj:
+    with target_path.open("wb") as file_obj:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 file_obj.write(chunk)
@@ -299,6 +405,15 @@ def _guess_extension(url: str, fallback_extension: str) -> str:
     return fallback_extension
 
 
+def _guess_media_type(filename: str) -> str:
+    return mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+
+def _build_content_disposition(filename: str, disposition: str) -> str:
+    resolved_disposition = "attachment" if disposition == "attachment" else "inline"
+    return f"{resolved_disposition}; filename*=UTF-8''{quote(filename)}"
+
+
 def _ensure_ffmpeg_available() -> None:
     if shutil.which("ffmpeg"):
         return
@@ -310,9 +425,28 @@ def _extract_audio(video_path: Path, audio_path: Path) -> None:
 
     (
         ffmpeg.input(str(video_path))
-        .output(str(audio_path), acodec="libmp3lame", q=0)
+        .output(str(audio_path), acodec="pcm_s16le", ar=16000, ac=1)
         .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
     )
+
+
+def _build_transcription_metadata(config: TranscriptionConfig) -> dict:
+    payload = {
+        "backend": config.backend,
+        "model": config.model,
+        "cleanup": "临时视频和音频文件会在转写完成后自动删除",
+    }
+    if config.backend == "openai":
+        payload["api_base"] = config.api_base
+    if config.backend == "funasr":
+        payload["vad_model"] = config.funasr_vad_model
+        payload["punc_model"] = config.funasr_punc_model
+        payload["device"] = config.funasr_device
+    if config.backend == "doubaoime":
+        payload["credential_path"] = config.doubaoime_credential_path
+        payload["enable_punctuation"] = config.doubaoime_enable_punctuation
+        payload["device_id"] = config.doubaoime_device_id or None
+    return payload
 
 
 def _build_transcript_markdown(parsed: ParsedMedia, transcript_text: str, config: TranscriptionConfig) -> str:
@@ -322,9 +456,10 @@ def _build_transcript_markdown(parsed: ParsedMedia, transcript_text: str, config
         "| 字段 | 值 |",
         "| --- | --- |",
         f"| 平台 | {parsed.platform} |",
-        f"| 视频ID | `{parsed.video_id or ''}` |",
+        f"| 视频 ID | `{parsed.video_id or ''}` |",
         f"| 原始链接 | {parsed.source_url} |",
         f"| 解析时间 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |",
+        f"| 转写后端 | `{config.backend}` |",
         f"| 转写模型 | `{config.model}` |",
         "",
         "## 文案",

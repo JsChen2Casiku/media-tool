@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+.env
+
+media_tool_core/logs/
+media_tool_core/storage/
+media_tool_storage/
+media_tool_logs/
+
+.pytest_cache/
+.mypy_cache/

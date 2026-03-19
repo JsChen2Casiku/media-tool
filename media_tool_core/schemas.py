@@ -15,9 +15,41 @@ class DownloadRequest(ParseRequest):
 
 
 class AIConfigMixin(BaseModel):
-    api_base: Optional[str] = Field(default=None, description="OpenAI 兼容接口基础地址或完整 /audio/transcriptions 地址")
+    backend: Optional[str] = Field(
+        default=None,
+        description="转写后端，支持 openai、funasr、doubaoime",
+    )
+    api_base: Optional[str] = Field(
+        default=None,
+        description="OpenAI 兼容接口基础地址，或完整的 /audio/transcriptions 地址",
+    )
     api_key: Optional[str] = Field(default=None, description="接口密钥")
-    model: Optional[str] = Field(default=None, description="模型名称")
+    model: Optional[str] = Field(
+        default=None,
+        description="模型名称。openai 后端表示转写模型，funasr 后端表示本地模型，doubaoime 后端仅用于结果标识。",
+    )
+    funasr_vad_model: Optional[str] = Field(default=None, description="FunASR VAD 模型名")
+    funasr_punc_model: Optional[str] = Field(default=None, description="FunASR 标点模型名")
+    funasr_device: Optional[str] = Field(
+        default=None,
+        description="FunASR 运行设备，例如 auto、cpu、cuda:0",
+    )
+    doubaoime_credential_path: Optional[str] = Field(
+        default=None,
+        description="doubaoime-asr 凭据缓存文件路径，首次运行可自动注册并写入",
+    )
+    doubaoime_device_id: Optional[str] = Field(
+        default=None,
+        description="doubaoime-asr 设备 ID，可选",
+    )
+    doubaoime_token: Optional[str] = Field(
+        default=None,
+        description="doubaoime-asr 认证 Token，可选",
+    )
+    doubaoime_enable_punctuation: Optional[bool] = Field(
+        default=None,
+        description="doubaoime-asr 是否启用标点",
+    )
 
 
 class ExtractRequest(DownloadRequest, AIConfigMixin):
