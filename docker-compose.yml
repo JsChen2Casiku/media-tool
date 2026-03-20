@@ -36,9 +36,14 @@ services:
 
   whisper-asr:
     image: onerahmet/openai-whisper-asr-webservice:latest
-    container_name: media-tool-whisper-asr
+    container_name: whisper-asr
     restart: unless-stopped
+    ports:
+      - "9000:9000"
     environment:
-      ASR_ENGINE: ${MEDIA_TOOL_ASR_ENGINE:-faster_whisper}
-      ASR_MODEL: ${MEDIA_TOOL_ASR_MODEL:-small}
-      ASR_DEVICE: ${MEDIA_TOOL_ASR_DEVICE:-cpu}
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: small
+      ASR_DEVICE: cpu
+      ASR_MODEL_PATH: /data/whisper
+    volumes:
+      - ./whisper-cache:/data/whisper
