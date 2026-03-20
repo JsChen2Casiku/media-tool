@@ -1,10 +1,10 @@
-import os
+﻿import os
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Optional
 
 from media_tool_core.schemas import ExtractRequest
 from media_tool_core.services.media_service import extract_transcript
@@ -20,6 +20,8 @@ class JobRecord:
     status: str
     created_at: str
     updated_at: str
+    progress_percent: int = 0
+    progress_label: Optional[str] = None
     logs: list[str] = field(default_factory=list)
     result: Optional[dict] = None
     error: Optional[str] = None
@@ -30,6 +32,8 @@ class JobRecord:
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "progress_percent": self.progress_percent,
+            "progress_label": self.progress_label,
             "logs": list(self.logs),
             "result": self.result,
             "error": self.error,
@@ -52,6 +56,8 @@ def create_extract_job(payload: ExtractRequest) -> dict:
         status="queued",
         created_at=now,
         updated_at=now,
+        progress_percent=0,
+        progress_label="任务已创建",
         logs=[_format_log("任务已创建，等待执行。")],
     )
     with _jobs_lock:
@@ -61,30 +67,43 @@ def create_extract_job(payload: ExtractRequest) -> dict:
     _executor.submit(_run_extract_job, job_id, job_payload)
     return record.to_dict()
 
-
 def get_job(job_id: str) -> dict:
     with _jobs_lock:
         record = _jobs.get(job_id)
         if record is None:
-            raise JobNotFoundError(f"未找到任务: {job_id}")
+            raise JobNotFoundError(f"未找到任务：{job_id}")
         return record.to_dict()
 
-
 def _run_extract_job(job_id: str, payload: ExtractRequest) -> None:
-    _update_job(job_id, status="running")
+    _update_job(job_id, status="running", progress_percent=5, progress_label="准备执行任务")
     _append_log(job_id, "开始执行转写任务。")
 
-    def progress(message: str) -> None:
+    def progress(message: str, progress_percent: int | None = None, progress_label: str | None = None) -> None:
+        _update_job(
+            job_id,
+            progress_percent=progress_percent,
+            progress_label=progress_label or message,
+        )
         _append_log(job_id, message)
 
     try:
         result = extract_transcript(payload, progress_callback=progress)
-        _update_job(job_id, status="succeeded", result=result)
+        _update_job(
+            job_id,
+            status="succeeded",
+            result=result,
+            progress_percent=100,
+            progress_label="转写完成",
+        )
         _append_log(job_id, "任务执行完成。")
     except Exception as exc:
-        _update_job(job_id, status="failed", error=str(exc))
+        _update_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+            progress_label="任务失败",
+        )
         _append_log(job_id, f"任务失败：{exc}")
-
 
 def _append_log(job_id: str, message: str) -> None:
     with _jobs_lock:
@@ -102,6 +121,8 @@ def _update_job(
     status: Optional[str] = None,
     result: Optional[dict] = None,
     error: Optional[str] = None,
+    progress_percent: Optional[int] = None,
+    progress_label: Optional[str] = None,
 ) -> None:
     with _jobs_lock:
         record = _jobs.get(job_id)
@@ -113,6 +134,10 @@ def _update_job(
             record.result = result
         if error is not None:
             record.error = error
+        if progress_percent is not None:
+            record.progress_percent = max(0, min(100, int(progress_percent)))
+        if progress_label is not None:
+            record.progress_label = progress_label
         record.updated_at = _utc_now()
 
 
@@ -122,3 +147,4 @@ def _utc_now() -> str:
 
 def _format_log(message: str) -> str:
     return f"[{datetime.now().strftime('%H:%M:%S')}] {message}"
+

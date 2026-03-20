@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from media_tool_core.configs.env_loader import load_project_env
@@ -19,4 +19,9 @@ app.mount("/web", StaticFiles(directory=str(WEB_DIR)), name="web")
 
 @app.get("/")
 def index():
-    return FileResponse(WEB_DIR / "index.html")
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )

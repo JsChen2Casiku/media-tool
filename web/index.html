@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -11,10 +11,18 @@
     <header class="app-header card">
       <div class="header-copy">
         <p class="eyebrow">MEDIA TOOL</p>
-        <h1>短视频解析与异步转写</h1>
-        <p class="header-description">解析媒体信息，提交异步转写任务，轮询查看结果，并按需预览或下载单项资源。</p>
+        <h1>短视频解析转写控制台</h1>
+        <p class="header-description">解析媒体信息，提交异步转写任务，轮询查看结果，并按需预览或下载资源。</p>
       </div>
       <div class="header-stats">
+        <article class="stat-chip theme-chip">
+          <span class="stat-label">主题模式</span>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="切换主题模式" aria-pressed="false">
+            <span id="theme-toggle-icon" class="theme-toggle-icon">☀</span>
+            <span id="theme-toggle-text">明亮</span>
+          </button>
+          <small id="theme-toggle-hint">跟随当前页面主题，可手动切换。</small>
+        </article>
         <article class="stat-chip">
           <span class="stat-label">服务状态</span>
           <strong id="health-status">检测中</strong>
@@ -107,8 +115,17 @@
         </div>
 
         <article id="status-card" class="status-panel status-idle" aria-live="polite">
-          <strong id="status-title">等待操作</strong>
-          <p id="status-message">先解析媒体信息，再创建异步转写任务。</p>
+          <div class="status-main">
+            <strong id="status-title">等待操作</strong>
+            <p id="status-message">先解析媒体信息，再创建异步转写任务。</p>
+          </div>
+          <div id="status-progress" class="status-progress is-hidden" aria-hidden="true">
+            <span id="status-progress-value" class="status-progress-value">0%</span>
+            <div class="status-progress-track">
+              <span id="status-progress-bar" class="status-progress-bar"></span>
+            </div>
+            <small id="status-progress-hint" class="status-progress-hint">等待任务开始</small>
+          </div>
         </article>
 
         <div class="subsection-head">
@@ -129,7 +146,7 @@
         <div class="section-head">
           <div>
             <p class="eyebrow section-eyebrow">预览</p>
-            <h2>媒体预览与单项下载</h2>
+            <h2>媒体预览与下载</h2>
           </div>
         </div>
         <div id="preview-grid" class="preview-root preview-empty">
@@ -148,6 +165,57 @@
         <pre id="transcript-output" class="transcript-box">暂无转写内容</pre>
       </section>
     </main>
+
+    <footer class="platform-footer card">
+      <div class="section-head footer-head">
+        <div>
+          <p class="eyebrow section-eyebrow">平台</p>
+          <h2>当前支持的平台</h2>
+        </div>
+      </div>
+      <div class="platform-tags">
+        <a class="platform-tag" href="https://www.xiaohongshu.com" target="_blank" rel="noopener noreferrer">小红书</a>
+        <a class="platform-tag" href="https://www.douyin.com" target="_blank" rel="noopener noreferrer">抖音</a>
+        <a class="platform-tag" href="https://www.kuaishou.com" target="_blank" rel="noopener noreferrer">快手</a>
+        <a class="platform-tag" href="https://www.bilibili.com" target="_blank" rel="noopener noreferrer">哔哩哔哩</a>
+        <a class="platform-tag" href="https://haokan.baidu.com" target="_blank" rel="noopener noreferrer">好看视频</a>
+        <a class="platform-tag" href="https://weishi.qq.com" target="_blank" rel="noopener noreferrer">微视</a>
+        <a class="platform-tag" href="https://www.pearvideo.com" target="_blank" rel="noopener noreferrer">梨视频</a>
+        <a class="platform-tag" href="https://h5.pipigx.com" target="_blank" rel="noopener noreferrer">皮皮搞笑</a>
+        <a class="platform-tag" href="https://www.acfun.cn" target="_blank" rel="noopener noreferrer">AcFun</a>
+        <a class="platform-tag" href="https://www.instagram.com" target="_blank" rel="noopener noreferrer">Instagram</a>
+        <a class="platform-tag" href="https://www.tiktok.com" target="_blank" rel="noopener noreferrer">TikTok</a>
+        <a class="platform-tag" href="https://x.com" target="_blank" rel="noopener noreferrer">Twitter / X</a>
+        <a class="platform-tag" href="https://weibo.com" target="_blank" rel="noopener noreferrer">微博</a>
+        <a class="platform-tag" href="https://www.ixigua.com" target="_blank" rel="noopener noreferrer">西瓜视频</a>
+        <a class="platform-tag" href="https://www.youtube.com" target="_blank" rel="noopener noreferrer">YouTube</a>
+        <a class="platform-tag" href="https://www.zhihu.com" target="_blank" rel="noopener noreferrer">知乎</a>
+      </div>
+    </footer>
+  </div>
+
+  <div id="image-lightbox" class="image-lightbox is-hidden" aria-hidden="true">
+    <div class="image-lightbox-backdrop" data-lightbox-close="true"></div>
+    <section class="image-lightbox-dialog" role="dialog" aria-modal="true" aria-label="图片放大预览">
+      <div class="image-lightbox-head">
+        <div class="image-lightbox-meta">
+          <p id="lightbox-label" class="eyebrow">IMAGE VIEWER</p>
+          <h3 id="lightbox-title">图片预览</h3>
+          <small id="lightbox-counter" class="image-lightbox-counter">1 / 1</small>
+        </div>
+        <div class="image-lightbox-actions">
+          <a id="lightbox-download" class="asset-link" href="#" download>下载图片</a>
+          <button id="lightbox-close" class="button button-secondary button-small" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="image-lightbox-body">
+        <button id="lightbox-prev" class="lightbox-nav lightbox-nav-prev" type="button" aria-label="上一张">&larr;</button>
+        <div class="image-lightbox-stage">
+          <img id="lightbox-image" class="image-lightbox-image" src="" alt="放大预览">
+        </div>
+        <button id="lightbox-next" class="lightbox-nav lightbox-nav-next" type="button" aria-label="下一张">&rarr;</button>
+      </div>
+    </section>
   </div>
 
   <script src="/web/app.js"></script>

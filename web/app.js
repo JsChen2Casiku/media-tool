@@ -1,4 +1,4 @@
-const qs = (selector) => document.querySelector(selector);
+﻿const qs = (selector) => document.querySelector(selector);
 
 const DEFAULTS = {
   transcriptionBaseUrl: "http://127.0.0.1:9000",
@@ -9,6 +9,7 @@ const DEFAULTS = {
   transcriptionWordTimestamps: false,
   transcriptionVadFilter: false,
   saveTranscript: true,
+  theme: "system",
 };
 
 const POLL_INTERVAL_MS = 2000;
@@ -19,6 +20,9 @@ const state = {
   lastParse: null,
   lastText: "",
   lastTranscript: "",
+  selectedGalleryIndex: 0,
+  lightboxItems: [],
+  lightboxIndex: 0,
   pollTimer: null,
   pollInFlight: false,
 };
@@ -39,9 +43,17 @@ const elements = {
   fillDemo: qs("#fill-demo"),
   copyLog: qs("#copy-log"),
   copyTranscript: qs("#copy-transcript"),
+  themeToggle: qs("#theme-toggle"),
+  themeToggleIcon: qs("#theme-toggle-icon"),
+  themeToggleText: qs("#theme-toggle-text"),
+  themeToggleHint: qs("#theme-toggle-hint"),
   statusCard: qs("#status-card"),
   statusTitle: qs("#status-title"),
   statusMessage: qs("#status-message"),
+  statusProgress: qs("#status-progress"),
+  statusProgressValue: qs("#status-progress-value"),
+  statusProgressBar: qs("#status-progress-bar"),
+  statusProgressHint: qs("#status-progress-hint"),
   healthStatus: qs("#health-status"),
   healthHint: qs("#health-hint"),
   jobStatus: qs("#job-status"),
@@ -50,6 +62,15 @@ const elements = {
   previewGrid: qs("#preview-grid"),
   logOutput: qs("#log-output"),
   transcriptOutput: qs("#transcript-output"),
+  imageLightbox: qs("#image-lightbox"),
+  lightboxLabel: qs("#lightbox-label"),
+  lightboxTitle: qs("#lightbox-title"),
+  lightboxCounter: qs("#lightbox-counter"),
+  lightboxImage: qs("#lightbox-image"),
+  lightboxDownload: qs("#lightbox-download"),
+  lightboxClose: qs("#lightbox-close"),
+  lightboxPrev: qs("#lightbox-prev"),
+  lightboxNext: qs("#lightbox-next"),
 };
 
 function hasElement(element) {
@@ -112,6 +133,81 @@ function setStatus(kind, title, message) {
   setText(elements.statusMessage, message);
 }
 
+function setStatusProgress(progress = null) {
+  if (!hasElement(elements.statusProgress)) {
+    return;
+  }
+
+  if (!progress) {
+    elements.statusProgress.classList.add("is-hidden");
+    elements.statusProgress.setAttribute("aria-hidden", "true");
+    setText(elements.statusProgressValue, "0%");
+    setText(elements.statusProgressHint, "等待任务开始");
+    if (hasElement(elements.statusProgressBar)) {
+      elements.statusProgressBar.style.width = "0%";
+    }
+    return;
+  }
+
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  elements.statusProgress.classList.remove("is-hidden");
+  elements.statusProgress.setAttribute("aria-hidden", "false");
+  setText(elements.statusProgressValue, `${percent}%`);
+  setText(elements.statusProgressHint, progress.label || "正在处理");
+  if (hasElement(elements.statusProgressBar)) {
+    elements.statusProgressBar.style.width = `${percent}%`;
+  }
+}
+function getJobProgress(job) {
+  if (!job) {
+    return null;
+  }
+
+  if (Number.isFinite(Number(job.progress_percent))) {
+    const percent = Math.max(0, Math.min(100, Number(job.progress_percent)));
+    if (job.status === "failed") {
+      return { percent, label: job.progress_label || job.error || "任务执行失败" };
+    }
+    return { percent, label: job.progress_label || `当前进度 ${percent}%` };
+  }
+
+  if (job.status === "queued") {
+    return { percent: 12, label: "任务已排队" };
+  }
+
+  if (job.status === "succeeded") {
+    return { percent: 100, label: "转写已完成" };
+  }
+
+  if (job.status === "failed") {
+    return { percent: 100, label: "任务已终止" };
+  }
+
+  if (job.status !== "running") {
+    return null;
+  }
+
+  const logText = Array.isArray(job.logs) ? job.logs.join("\n") : "";
+  if (logText.includes("transcript.md")) {
+    return { percent: 95, label: "正在写入结果" };
+  }
+  if (logText.includes("Whisper ASR") && logText.includes("完成")) {
+    return { percent: 84, label: "正在整理转写结果" };
+  }
+  if (logText.includes("Whisper ASR")) {
+    return { percent: 68, label: "ASR 正在识别音频" };
+  }
+  if (logText.includes("下载完成")) {
+    return { percent: 42, label: "媒体已下载，准备转写" };
+  }
+  if (logText.includes("下载转写源文件")) {
+    return { percent: 24, label: "正在下载转写源文件" };
+  }
+  if (logText.includes("解析完成")) {
+    return { percent: 16, label: "媒体已解析" };
+  }
+  return { percent: 8, label: "任务已启动" };
+}
 function setJobBadge(title, hint) {
   setText(elements.jobStatus, title);
   setText(elements.jobHint, hint);
@@ -152,6 +248,7 @@ function saveConfig() {
     ),
     transcriptionVadFilter: getChecked(elements.transcriptionVadFilter, DEFAULTS.transcriptionVadFilter),
     saveTranscript: getChecked(elements.saveTranscript, DEFAULTS.saveTranscript),
+    theme: localStorage.getItem("media-tool-theme") || DEFAULTS.theme,
   };
   localStorage.setItem("media-tool-config", JSON.stringify(payload));
 }
@@ -169,6 +266,44 @@ function restoreConfig() {
   );
   setChecked(elements.transcriptionVadFilter, stored.transcriptionVadFilter ?? DEFAULTS.transcriptionVadFilter);
   setChecked(elements.saveTranscript, stored.saveTranscript ?? DEFAULTS.saveTranscript);
+  applyTheme(stored.theme || localStorage.getItem("media-tool-theme") || DEFAULTS.theme, false);
+}
+
+function getSystemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function getResolvedTheme(theme) {
+  return theme === "system" ? getSystemTheme() : theme;
+}
+
+function updateThemeToggle(theme) {
+  const resolvedTheme = getResolvedTheme(theme);
+  const isDark = resolvedTheme === "dark";
+  if (hasElement(elements.themeToggle)) {
+    elements.themeToggle.setAttribute("aria-pressed", String(isDark));
+    elements.themeToggle.dataset.theme = theme;
+    elements.themeToggle.title = isDark ? "切换为明亮模式" : "切换为暗黑模式";
+  }
+  setText(elements.themeToggleIcon, isDark ? "☾" : "☀");
+  setText(elements.themeToggleText, isDark ? "暗黑" : "明亮");
+  setText(elements.themeToggleHint, theme === "system" ? "当前跟随系统主题。" : "已使用手动主题设置。");
+}
+function applyTheme(theme, persist = true) {
+  const nextTheme = theme || DEFAULTS.theme;
+  const resolvedTheme = getResolvedTheme(nextTheme);
+  document.body.classList.toggle("theme-dark", resolvedTheme === "dark");
+  updateThemeToggle(nextTheme);
+  if (persist) {
+    localStorage.setItem("media-tool-theme", nextTheme);
+    saveConfig();
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = localStorage.getItem("media-tool-theme") || DEFAULTS.theme;
+  const resolvedTheme = getResolvedTheme(currentTheme);
+  applyTheme(resolvedTheme === "dark" ? "light" : "dark");
 }
 
 function buildAssetUrl(kind, index = null, disposition = "inline") {
@@ -186,15 +321,67 @@ function createDownloadLink(kind, label, index = null) {
   return `<a class="asset-link" href="${buildAssetUrl(kind, index, "attachment")}">${escapeHtml(label)}</a>`;
 }
 
-function createInfoItem(label, value, wide = false) {
+function clampIndex(value, max) {
+  if (max <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(max - 1, Number(value) || 0));
+}
+
+function normalizeGalleryIndex(media) {
+  const total = Array.isArray(media?.image_list) ? media.image_list.length : 0;
+  state.selectedGalleryIndex = clampIndex(state.selectedGalleryIndex, total);
+  return state.selectedGalleryIndex;
+}
+
+function setSelectedGalleryIndex(index) {
+  if (!state.lastParse || !Array.isArray(state.lastParse.image_list) || state.lastParse.image_list.length === 0) {
+    return;
+  }
+  state.selectedGalleryIndex = clampIndex(index, state.lastParse.image_list.length);
+  renderPreview(state.lastParse);
+}
+
+function createInfoItem(label, value, wide = false, extraClass = "") {
   return `
-    <article class="info-item ${wide ? "is-wide" : ""}">
+    <article class="info-item ${wide ? "is-wide" : ""} ${extraClass}">
       <span class="item-label">${escapeHtml(label)}</span>
       <strong class="item-value">${escapeHtml(value)}</strong>
     </article>
   `;
 }
 
+function createAuthorItems(author) {
+  if (!author) {
+    return [
+      createInfoItem("作者头像", "-", false),
+      createInfoItem("作者昵称", "-", false),
+    ];
+  }
+
+  const avatar = author.avatar
+    ? `<img class="author-avatar" src="${escapeHtml(author.avatar)}" alt="${escapeHtml(author.nickname || "作者头像")}">`
+    : `<div class="author-avatar author-avatar-fallback">${escapeHtml((author.nickname || "?").slice(0, 1))}</div>`;
+
+  return [
+    `
+      <article class="info-item author-avatar-item">
+        <span class="item-label">作者头像</span>
+        <div class="author-avatar-box">
+          ${avatar}
+        </div>
+      </article>
+    `,
+    `
+      <article class="info-item author-name-item">
+        <span class="item-label">作者昵称</span>
+        <div class="author-name-box">
+          <strong class="item-value author-name">${escapeHtml(author.nickname || "-")}</strong>
+        </div>
+      </article>
+    `,
+  ];
+}
 function renderMediaInfo(media, transcription = null) {
   if (!media) {
     setHtml(elements.mediaInfo, "<p>暂无媒体信息</p>");
@@ -203,29 +390,28 @@ function renderMediaInfo(media, transcription = null) {
   }
 
   const items = [
+    createInfoItem("标题", media.title || "-", true, "title-item"),
     createInfoItem("平台", media.platform || "-"),
     createInfoItem("类型", media.is_image_post ? "图集" : "视频"),
     createInfoItem("视频 ID", media.video_id || "-"),
+    ...createAuthorItems(media.author),
     createInfoItem("图集数量", Array.isArray(media.image_list) ? String(media.image_list.length) : "0"),
-    createInfoItem("标题", media.title || "-", true),
   ];
-
-  if (transcription) {
-    items.push(createInfoItem("转写语言", transcription.detected_language || transcription.language || "-", false));
-    items.push(createInfoItem("分段数量", String(transcription.segment_count ?? "-"), false));
-    items.push(createInfoItem("转写服务", transcription.base_url || "-", true));
-  }
 
   setHtml(elements.mediaInfo, items.join(""));
   setClassName(elements.mediaInfo, "info-grid");
 }
-
 function renderPreview(media) {
   if (!media) {
     setHtml(elements.previewGrid, "<p>解析完成后，这里会显示视频、音频、封面和图集预览。</p>");
     setClassName(elements.previewGrid, "preview-root preview-empty");
+    initInteractiveCards();
     return;
   }
+
+  const hasGallery = Array.isArray(media.image_list) && media.image_list.length > 0;
+  const galleryIndex = normalizeGalleryIndex(media);
+  const galleryCounter = hasGallery ? `${galleryIndex + 1} / ${media.image_list.length}` : "0 / 0";
 
   const videoBlock = media.video_url
     ? `
@@ -238,6 +424,49 @@ function renderPreview(media) {
           <div class="asset-actions">${createDownloadLink("video", "下载视频")}</div>
         </div>
         <video class="preview-video" controls preload="metadata" src="${buildAssetUrl("video")}"></video>
+      </article>
+    `
+    : hasGallery
+      ? `
+      <article class="asset-card asset-card-gallery-main">
+        <div class="asset-head">
+          <div>
+            <p class="preview-label">Gallery</p>
+            <h3>图集主预览</h3>
+          </div>
+          <div class="asset-actions">
+            <span class="gallery-main-counter">${galleryCounter}</span>
+            ${createDownloadLink("image", "下载当前图片", galleryIndex)}
+          </div>
+        </div>
+        <button
+          class="gallery-main-button image-preview-trigger"
+          type="button"
+          data-lightbox-kind="gallery"
+          data-index="${galleryIndex}"
+          aria-label="放大查看当前图集图片"
+        >
+          <img
+            class="preview-gallery-main"
+            alt="图集主预览 ${galleryIndex + 1}"
+            src="${buildAssetUrl("image", galleryIndex)}"
+          >
+        </button>
+        <div class="gallery-main-toolbar">
+          <button
+            class="button button-secondary button-small gallery-step-button"
+            type="button"
+            data-gallery-step="-1"
+            ${galleryIndex <= 0 ? "disabled" : ""}
+          >上一张</button>
+          <div class="gallery-main-hint">点击图片可放大查看，支持下载与切换</div>
+          <button
+            class="button button-secondary button-small gallery-step-button"
+            type="button"
+            data-gallery-step="1"
+            ${galleryIndex >= media.image_list.length - 1 ? "disabled" : ""}
+          >下一张</button>
+        </div>
       </article>
     `
     : `
@@ -287,7 +516,14 @@ function renderPreview(media) {
           </div>
           <div class="asset-actions">${createDownloadLink("cover", "下载封面")}</div>
         </div>
-        <img class="preview-cover" alt="封面预览" src="${buildAssetUrl("cover")}">
+        <button
+          class="cover-preview-button image-preview-trigger"
+          type="button"
+          data-lightbox-kind="cover"
+          aria-label="放大查看封面"
+        >
+          <img class="preview-cover" alt="封面预览" src="${buildAssetUrl("cover")}">
+        </button>
       </article>
     `
     : `
@@ -303,15 +539,32 @@ function renderPreview(media) {
     `;
 
   let galleryBlock = "";
-  if (Array.isArray(media.image_list) && media.image_list.length > 0) {
+  if (hasGallery) {
     const galleryItems = media.image_list
       .map((_, index) => {
         return `
-          <figure class="gallery-item">
-            <img alt="图集 ${index + 1}" src="${buildAssetUrl("image", index)}">
+          <figure class="gallery-item ${index === galleryIndex ? "is-active" : ""}">
+            <button
+              class="gallery-thumb-button image-preview-trigger"
+              type="button"
+              data-gallery-index="${index}"
+              data-lightbox-kind="gallery"
+              data-index="${index}"
+              aria-pressed="${index === galleryIndex ? "true" : "false"}"
+              aria-label="查看图集 ${index + 1}"
+            >
+              <img alt="图集 ${index + 1}" src="${buildAssetUrl("image", index)}">
+            </button>
             <figcaption>
-              <span>图集 ${index + 1}</span>
-              ${createDownloadLink("image", "下载图片", index)}
+              <div class="gallery-caption-row">
+                <div class="gallery-meta">
+                  <span class="gallery-name">图集 ${index + 1}</span>
+                  <small class="gallery-note">
+                    <span class="gallery-status-dot ${index === galleryIndex ? "is-active" : ""}" aria-hidden="true"></span>
+                  </small>
+                </div>
+                ${createDownloadLink("image", "下载", index)}
+              </div>
             </figcaption>
           </figure>
         `;
@@ -342,6 +595,126 @@ function renderPreview(media) {
     `,
   );
   setClassName(elements.previewGrid, "preview-root");
+  initInteractiveCards();
+}
+
+function getLightboxItems(kind) {
+  if (!state.lastParse) {
+    return [];
+  }
+  if (kind === "cover" && state.lastParse.cover_url) {
+    return [
+      {
+        label: "封面图片",
+        title: state.lastParse.title || "封面预览",
+        previewUrl: buildAssetUrl("cover"),
+        downloadUrl: buildAssetUrl("cover", null, "attachment"),
+      },
+    ];
+  }
+  if (kind === "gallery" && Array.isArray(state.lastParse.image_list)) {
+    return state.lastParse.image_list.map((_, index) => ({
+      label: `图集 ${index + 1}`,
+      title: state.lastParse.title || `图集 ${index + 1}`,
+      previewUrl: buildAssetUrl("image", index),
+      downloadUrl: buildAssetUrl("image", index, "attachment"),
+    }));
+  }
+  return [];
+}
+
+function renderLightbox() {
+  const items = state.lightboxItems;
+  const hasItems = Array.isArray(items) && items.length > 0;
+  if (!hasItems || !hasElement(elements.imageLightbox)) {
+    return;
+  }
+  const index = clampIndex(state.lightboxIndex, items.length);
+  state.lightboxIndex = index;
+  const current = items[index];
+  elements.imageLightbox.classList.remove("is-hidden");
+  elements.imageLightbox.setAttribute("aria-hidden", "false");
+  setText(elements.lightboxLabel, items.length > 1 ? "GALLERY VIEWER" : "IMAGE VIEWER");
+  setText(elements.lightboxTitle, current.title || current.label || "图片预览");
+  setText(elements.lightboxCounter, `${index + 1} / ${items.length}`);
+  if (hasElement(elements.lightboxImage)) {
+    elements.lightboxImage.src = current.previewUrl;
+    elements.lightboxImage.alt = current.label || "放大预览";
+  }
+  if (hasElement(elements.lightboxDownload)) {
+    elements.lightboxDownload.href = current.downloadUrl;
+    elements.lightboxDownload.setAttribute("download", "");
+    elements.lightboxDownload.textContent = items.length > 1 ? "下载当前图片" : "下载图片";
+  }
+  if (hasElement(elements.lightboxPrev)) {
+    elements.lightboxPrev.disabled = index <= 0;
+  }
+  if (hasElement(elements.lightboxNext)) {
+    elements.lightboxNext.disabled = index >= items.length - 1;
+  }
+}
+
+function openLightbox(kind, index = 0) {
+  const items = getLightboxItems(kind);
+  if (!items.length) {
+    return;
+  }
+  state.lightboxItems = items;
+  state.lightboxIndex = clampIndex(index, items.length);
+  renderLightbox();
+}
+
+function closeLightbox() {
+  state.lightboxItems = [];
+  state.lightboxIndex = 0;
+  if (!hasElement(elements.imageLightbox)) {
+    return;
+  }
+  elements.imageLightbox.classList.add("is-hidden");
+  elements.imageLightbox.setAttribute("aria-hidden", "true");
+  if (hasElement(elements.lightboxImage)) {
+    elements.lightboxImage.src = "";
+  }
+}
+
+function stepLightbox(offset) {
+  if (!Array.isArray(state.lightboxItems) || state.lightboxItems.length <= 1) {
+    return;
+  }
+  state.lightboxIndex = clampIndex(state.lightboxIndex + offset, state.lightboxItems.length);
+  renderLightbox();
+}
+
+function bindInteractiveCard(card) {
+  if (!hasElement(card) || card.dataset.glowBound === "true") {
+    return;
+  }
+
+  card.dataset.glowBound = "true";
+  card.classList.add("interactive-glow");
+
+  card.addEventListener("pointermove", (event) => {
+    const rect = card.getBoundingClientRect();
+    const x = `${event.clientX - rect.left}px`;
+    const y = `${event.clientY - rect.top}px`;
+    card.style.setProperty("--glow-x", x);
+    card.style.setProperty("--glow-y", y);
+    card.classList.add("is-glow-active");
+  });
+
+  card.addEventListener("pointerenter", () => {
+    card.classList.add("is-glow-active");
+  });
+
+  card.addEventListener("pointerleave", () => {
+    card.classList.remove("is-glow-active");
+  });
+}
+
+function initInteractiveCards() {
+  document
+    .querySelectorAll(".app-header, .preview-card, .asset-card, .gallery-item")
+    .forEach((card) => bindInteractiveCard(card));
 }
 
 function renderTranscript(text, transcription = null) {
@@ -357,7 +730,6 @@ function renderTranscript(text, transcription = null) {
   state.lastTranscript = text || "";
   setText(elements.transcriptOutput, lines.join("\n"));
 }
-
 function renderLogs(lines) {
   state.currentJobLogs = Array.isArray(lines) ? [...lines] : [];
   const content = state.currentJobLogs.length > 0 ? state.currentJobLogs.join("\n") : "暂无任务日志";
@@ -366,7 +738,6 @@ function renderLogs(lines) {
     elements.logOutput.scrollTop = elements.logOutput.scrollHeight;
   }
 }
-
 async function requestJson(url, options) {
   const response = await fetch(url, options);
   const raw = await response.text();
@@ -402,10 +773,13 @@ function getPayload() {
 }
 
 function resetResultViews() {
+  state.selectedGalleryIndex = 0;
   renderMediaInfo(null);
   renderPreview(null);
   renderTranscript("");
   renderLogs([]);
+  setStatusProgress(null);
+  closeLightbox();
 }
 
 function stopPolling() {
@@ -432,6 +806,7 @@ async function ensureParsedMedia(text) {
   const media = await fetchParsedMedia(text);
   state.lastText = text;
   state.lastParse = media;
+  state.selectedGalleryIndex = 0;
   renderMediaInfo(media);
   renderPreview(media);
   return media;
@@ -444,6 +819,7 @@ function consumeJobResult(job) {
   const result = job.result;
   if (result.media) {
     state.lastParse = result.media;
+    state.selectedGalleryIndex = 0;
     renderMediaInfo(result.media, result.transcription || null);
     renderPreview(result.media);
   }
@@ -460,12 +836,14 @@ function applyJobState(job) {
   if (job.status === "queued") {
     setJobBadge("排队中", "任务已创建，等待后台执行");
     setStatus("loading", "任务排队中", "后台已接收转写任务，正在等待调度。");
+    setStatusProgress(getJobProgress(job));
     return;
   }
 
   if (job.status === "running") {
     setJobBadge("执行中", "日志会自动刷新，可继续轮询查看结果");
     setStatus("loading", "正在转写", "后台正在下载媒体并调用 ASR 服务。");
+    setStatusProgress(getJobProgress(job));
     return;
   }
 
@@ -474,6 +852,7 @@ function applyJobState(job) {
     consumeJobResult(job);
     setJobBadge("已完成", "转写任务已完成，结果已同步到页面");
     setStatus("success", "转写完成", "媒体预览和转写文案已经更新。");
+    setStatusProgress(getJobProgress(job));
     return;
   }
 
@@ -481,12 +860,12 @@ function applyJobState(job) {
     stopPolling();
     setJobBadge("失败", "任务执行失败，请查看日志定位问题");
     setStatus("error", "转写失败", job.error || "后台任务执行失败。");
+    setStatusProgress(getJobProgress(job));
     if (job.error) {
       appendLocalLog(`错误: ${job.error}`);
     }
   }
 }
-
 async function pollJobOnce() {
   if (!state.currentJobId || state.pollInFlight) {
     return;
@@ -525,7 +904,6 @@ async function checkHealth() {
     setText(elements.healthHint, error.message);
   }
 }
-
 async function parseMedia() {
   const payload = getPayload();
   if (!payload.text) {
@@ -547,6 +925,7 @@ async function parseMedia() {
     renderPreview(media);
     renderTranscript("");
     renderLogs([]);
+    setStatusProgress(null);
     setStatus("success", "解析完成", "媒体信息与资源预览已更新。");
   } catch (error) {
     resetResultViews();
@@ -555,7 +934,6 @@ async function parseMedia() {
     toggleDisabled(false);
   }
 }
-
 async function extractTranscript() {
   const payload = getPayload();
   if (!payload.text) {
@@ -581,15 +959,16 @@ async function extractTranscript() {
     renderLogs(job.logs || []);
     setJobBadge("排队中", `任务 ID: ${job.job_id}`);
     setStatus("loading", "任务已创建", "后台已开始执行转写，请等待轮询结果。");
+    setStatusProgress(getJobProgress(job));
     startPolling(job.job_id);
   } catch (error) {
     appendLocalLog(`创建任务失败: ${error.message}`);
     setStatus("error", "任务创建失败", error.message);
+    setStatusProgress(null);
   } finally {
     toggleDisabled(false);
   }
 }
-
 function clearResults() {
   stopPolling();
   state.currentJobId = null;
@@ -604,8 +983,8 @@ function clearResults() {
   resetResultViews();
   setStatus("idle", "等待操作", "先解析媒体信息，再创建异步转写任务。");
   setJobBadge("空闲", "尚未创建转写任务");
+  setStatusProgress(null);
 }
-
 async function copyText(text, successMessage) {
   const content = String(text || "").trim();
   if (!content) {
@@ -620,9 +999,46 @@ async function copyText(text, successMessage) {
     setStatus("error", "复制失败", error.message || "浏览器拒绝访问剪贴板。");
   }
 }
-
 function fillDemo() {
   setValue(elements.text, "https://www.douyin.com/video/7396822576074460467");
+}
+
+function handlePreviewGridClick(event) {
+  const gallerySwitch = event.target.closest("[data-gallery-index]");
+  if (gallerySwitch) {
+    event.preventDefault();
+    const nextIndex = Number(gallerySwitch.dataset.galleryIndex);
+    setSelectedGalleryIndex(nextIndex);
+    openLightbox("gallery", nextIndex);
+    return;
+  }
+
+  const galleryStep = event.target.closest("[data-gallery-step]");
+  if (galleryStep) {
+    event.preventDefault();
+    setSelectedGalleryIndex(state.selectedGalleryIndex + Number(galleryStep.dataset.galleryStep || 0));
+    return;
+  }
+
+  const previewTrigger = event.target.closest(".image-preview-trigger");
+  if (previewTrigger) {
+    event.preventDefault();
+    openLightbox(previewTrigger.dataset.lightboxKind || "cover", Number(previewTrigger.dataset.index || 0));
+  }
+}
+
+function handleGlobalKeydown(event) {
+  if (hasElement(elements.imageLightbox) && !elements.imageLightbox.classList.contains("is-hidden")) {
+    if (event.key === "Escape") {
+      closeLightbox();
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      stepLightbox(-1);
+    } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      stepLightbox(1);
+    }
+  }
 }
 
 function bindEvents() {
@@ -658,6 +1074,36 @@ function bindEvents() {
     });
   }
 
+  if (hasElement(elements.themeToggle)) {
+    elements.themeToggle.addEventListener("click", toggleTheme);
+  }
+
+  if (hasElement(elements.previewGrid)) {
+    elements.previewGrid.addEventListener("click", handlePreviewGridClick);
+  }
+
+  if (hasElement(elements.lightboxClose)) {
+    elements.lightboxClose.addEventListener("click", closeLightbox);
+  }
+
+  if (hasElement(elements.imageLightbox)) {
+    elements.imageLightbox.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLElement && event.target.dataset.lightboxClose === "true") {
+        closeLightbox();
+      }
+    });
+  }
+
+  if (hasElement(elements.lightboxPrev)) {
+    elements.lightboxPrev.addEventListener("click", () => stepLightbox(-1));
+  }
+
+  if (hasElement(elements.lightboxNext)) {
+    elements.lightboxNext.addEventListener("click", () => stepLightbox(1));
+  }
+
+  document.addEventListener("keydown", handleGlobalKeydown);
+
   [
     elements.transcriptionBaseUrl,
     elements.transcriptionTask,
@@ -672,12 +1118,23 @@ function bindEvents() {
       element.addEventListener("change", saveConfig);
     }
   });
+
+  if (window.matchMedia) {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    media.addEventListener("change", () => {
+      const savedTheme = localStorage.getItem("media-tool-theme") || DEFAULTS.theme;
+      if (savedTheme === "system") {
+        applyTheme("system", false);
+      }
+    });
+  }
 }
 
 function init() {
   restoreConfig();
   clearResults();
   bindEvents();
+  initInteractiveCards();
   void checkHealth();
 }
 
@@ -686,3 +1143,5 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
+
+

@@ -1,4 +1,4 @@
-import mimetypes
+﻿import mimetypes
 import os
 import re
 import shutil
@@ -73,8 +73,21 @@ def parse_media(text: str) -> dict:
     return parsed.to_dict()
 
 
-def _report(progress_callback, message: str) -> None:
-    if progress_callback:
+def _report(
+    progress_callback,
+    message: str,
+    progress_percent: int | None = None,
+    progress_label: str | None = None,
+) -> None:
+    if not progress_callback:
+        return
+    try:
+        progress_callback(
+            message,
+            progress_percent=progress_percent,
+            progress_label=progress_label,
+        )
+    except TypeError:
         progress_callback(message)
 
 
@@ -124,13 +137,14 @@ def download_media(payload: DownloadRequest) -> dict:
 
 
 def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
-    _report(progress_callback, "正在解析媒体链接。")
+    _report(progress_callback, "正在解析媒体链接。", 8, "正在解析媒体")
     parsed, downloader = _resolve_media_with_downloader(payload.text)
     source_url = parsed.audio_url or parsed.video_url
     if not source_url:
         raise ValueError("当前链接没有可转写的音频或视频地址，通常说明这是图集内容。")
 
-    _report(progress_callback, f"解析完成：{parsed.platform} / {parsed.title or parsed.video_id or '未命名内容'}")
+    display_name = parsed.title or parsed.video_id or "未命名内容"
+    _report(progress_callback, f"解析完成：{parsed.platform} / {display_name}", 16, "媒体解析完成")
 
     config = TranscriptionConfig.from_values(
         transcription_base_url=payload.transcription_base_url,
@@ -151,32 +165,44 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
     source_path = temp_dir / f"source{source_extension}"
 
     try:
-        _report(progress_callback, "开始下载转写源文件。")
+        _report(progress_callback, "开始下载转写源文件。", 28, "正在下载源文件")
         _download_to_path(
             source_url,
             source_path,
             headers=getattr(downloader, "headers", None),
             referer=parsed.real_url,
         )
-        _report(progress_callback, "源文件下载完成，开始提交 Whisper ASR。")
+        _report(progress_callback, "源文件下载完成，开始提交 ASR。", 42, "准备调用 ASR")
+        _report(progress_callback, "ASR 正在识别音频。", 56, "ASR 正在识别音频")
 
         transcription_result = transcriber.transcribe(source_path)
         transcript_text = transcription_result.text.strip()
-        _report(progress_callback, "Whisper ASR 转写完成，正在整理结果。")
+        _report(progress_callback, "ASR 转写完成，正在整理结果。", 84, "正在整理转写结果")
 
         saved_files = {"transcript": None, "video": None, "cover": None, "images": []}
+        progress_map = {}
 
         if payload.save_transcript:
+            progress_map["transcript"] = 90
+        if payload.save_video and parsed.video_url:
+            progress_map["video"] = 93
+        if payload.save_cover and parsed.cover_url:
+            progress_map["cover"] = 96
+        if payload.save_images and parsed.image_list:
+            progress_map["images"] = 98
+
+        if payload.save_transcript:
+            _report(progress_callback, "正在写入 transcript.md。", progress_map["transcript"], "正在写入转写文稿")
             transcript_path = export_dir / "transcript.md"
             transcript_path.write_text(
                 _build_transcript_markdown(parsed, transcription_result, config),
                 encoding="utf-8",
             )
             saved_files["transcript"] = str(transcript_path)
-            _report(progress_callback, "transcript.md 已保存。")
+            _report(progress_callback, "transcript.md 已保存。", progress_map["transcript"], "转写文稿已保存")
 
         if payload.save_video and parsed.video_url:
-            _report(progress_callback, "正在保存视频文件。")
+            _report(progress_callback, "正在保存视频文件。", progress_map["video"], "正在保存视频")
             saved_files["video"] = _download_url(
                 parsed.video_url,
                 export_dir,
@@ -187,7 +213,7 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
             )
 
         if payload.save_cover and parsed.cover_url:
-            _report(progress_callback, "正在保存封面文件。")
+            _report(progress_callback, "正在保存封面文件。", progress_map["cover"], "正在保存封面")
             saved_files["cover"] = _download_url(
                 parsed.cover_url,
                 export_dir,
@@ -198,8 +224,16 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
             )
 
         if payload.save_images and parsed.image_list:
-            _report(progress_callback, "正在保存图集文件。")
+            total_images = len(parsed.image_list)
+            base_progress = progress_map["images"]
             for index, image_url in enumerate(parsed.image_list, start=1):
+                step_progress = min(99, base_progress + max(0, index - 1))
+                _report(
+                    progress_callback,
+                    f"正在保存图集文件 {index}/{total_images}。",
+                    step_progress,
+                    "正在保存图集",
+                )
                 saved_files["images"].append(
                     _download_url(
                         image_url,
@@ -211,6 +245,7 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
                     )
                 )
 
+        _report(progress_callback, "结果整理完成，准备返回任务结果。", 99, "准备返回结果")
         return {
             "media": parsed.to_dict(),
             "transcript": transcript_text,
@@ -221,7 +256,6 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         _report(progress_callback, "临时文件已清理。")
-
 
 def stream_media_asset(
     text: str,
@@ -307,7 +341,6 @@ def _resolve_media_with_downloader(text: str):
     )
     return parsed, downloader
 
-
 def _resolve_asset(parsed: ParsedMedia, downloader, kind: str, index: int | None = None) -> ResolvedAsset:
     normalized_kind = (kind or "").strip().lower()
     headers = getattr(downloader, "headers", None)
@@ -341,7 +374,6 @@ def _resolve_asset(parsed: ParsedMedia, downloader, kind: str, index: int | None
         return ResolvedAsset(image_url, f"{base_name}_image_{index + 1:02d}{ext}", parsed.real_url, headers)
 
     raise ValueError(f"不支持的资源类型: {kind}")
-
 
 def _fetch_with_retry(downloader, platform_key: str) -> dict:
     max_attempts = 3 if platform_key == "xiaohongshu" else 1
@@ -487,7 +519,6 @@ def _download_to_path(url: str, target_path: Path, headers: Optional[dict] = Non
 
     raise ValueError(f"下载媒体资源失败，重试 {DOWNLOAD_RETRY_ATTEMPTS} 次后仍未成功：{last_error}")
 
-
 def _is_douyin_cdn_request(request_url: Optional[str], referer: Optional[str]) -> bool:
     haystacks = [request_url or "", referer or ""]
     keywords = ("douyinvod.com", "douyin.com", "iesdouyin.com", "byteimg.com")
@@ -525,7 +556,6 @@ def _build_transcription_metadata(config: TranscriptionConfig, result: Transcrip
         "cleanup": "转写完成后自动删除临时下载文件",
         "segment_count": len(result.segments),
     }
-
 
 def _build_transcript_markdown(parsed: ParsedMedia, result: TranscriptionResult, config: TranscriptionConfig) -> str:
     lines = [
