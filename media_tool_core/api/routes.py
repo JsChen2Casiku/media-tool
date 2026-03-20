@@ -1,17 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from media_tool_core.schemas import DownloadRequest, ExtractRequest, ParseRequest
-from media_tool_core.services.media_service import (
-    download_media,
-    extract_transcript,
-    parse_media,
-    stream_media_asset,
-)
+from media_tool_core.services.job_service import JobNotFoundError, create_extract_job, get_job
+from media_tool_core.services.media_service import download_media, parse_media, stream_media_asset
 
 router = APIRouter()
 
 
 def _normalize_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, JobNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, ModuleNotFoundError):
@@ -47,7 +45,15 @@ def download_route(payload: DownloadRequest):
 @router.post("/extract")
 def extract_route(payload: ExtractRequest):
     try:
-        return {"success": True, "data": extract_transcript(payload)}
+        return {"success": True, "data": create_extract_job(payload)}
+    except Exception as exc:
+        raise _normalize_exception(exc) from exc
+
+
+@router.get("/jobs/{job_id}")
+def job_route(job_id: str = Path(..., description="异步转写任务 ID")):
+    try:
+        return {"success": True, "data": get_job(job_id)}
     except Exception as exc:
         raise _normalize_exception(exc) from exc
 

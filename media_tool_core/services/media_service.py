@@ -2,6 +2,7 @@ import mimetypes
 import os
 import re
 import shutil
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -11,6 +12,7 @@ from urllib.parse import quote, urlparse
 
 import requests
 from fastapi.responses import StreamingResponse
+from requests.exceptions import ChunkedEncodingError, ConnectionError as RequestsConnectionError, ReadTimeout
 
 from media_tool_core.configs.general_constants import DOMAIN_TO_PLATFORM, PROJECT_ROOT, get_platform_label
 from media_tool_core.configs.logging_config import get_logger
@@ -25,6 +27,7 @@ from media_tool_core.utils.web_fetcher import UrlParser, WebFetcher
 
 logger = get_logger(__name__)
 REQUEST_TIMEOUT = int(os.getenv("MEDIA_TOOL_REQUEST_TIMEOUT", "30"))
+DOWNLOAD_RETRY_ATTEMPTS = int(os.getenv("MEDIA_TOOL_DOWNLOAD_RETRY_ATTEMPTS", "3"))
 STORAGE_ROOT = Path(os.getenv("MEDIA_TOOL_STORAGE_ROOT", str(Path(PROJECT_ROOT) / "storage")))
 TEMP_ROOT = STORAGE_ROOT / "temp"
 EXPORT_ROOT = STORAGE_ROOT / "exports"
@@ -68,6 +71,11 @@ class ResolvedAsset:
 def parse_media(text: str) -> dict:
     parsed, _ = _resolve_media_with_downloader(text)
     return parsed.to_dict()
+
+
+def _report(progress_callback, message: str) -> None:
+    if progress_callback:
+        progress_callback(message)
 
 
 def download_media(payload: DownloadRequest) -> dict:
@@ -115,11 +123,14 @@ def download_media(payload: DownloadRequest) -> dict:
     }
 
 
-def extract_transcript(payload: ExtractRequest) -> dict:
+def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
+    _report(progress_callback, "正在解析媒体链接。")
     parsed, downloader = _resolve_media_with_downloader(payload.text)
     source_url = parsed.audio_url or parsed.video_url
     if not source_url:
         raise ValueError("当前链接没有可转写的音频或视频地址，通常说明这是图集内容。")
+
+    _report(progress_callback, f"解析完成：{parsed.platform} / {parsed.title or parsed.video_id or '未命名内容'}")
 
     config = TranscriptionConfig.from_values(
         transcription_base_url=payload.transcription_base_url,
@@ -140,15 +151,18 @@ def extract_transcript(payload: ExtractRequest) -> dict:
     source_path = temp_dir / f"source{source_extension}"
 
     try:
+        _report(progress_callback, "开始下载转写源文件。")
         _download_to_path(
             source_url,
             source_path,
             headers=getattr(downloader, "headers", None),
             referer=parsed.real_url,
         )
+        _report(progress_callback, "源文件下载完成，开始提交 Whisper ASR。")
 
         transcription_result = transcriber.transcribe(source_path)
         transcript_text = transcription_result.text.strip()
+        _report(progress_callback, "Whisper ASR 转写完成，正在整理结果。")
 
         saved_files = {"transcript": None, "video": None, "cover": None, "images": []}
 
@@ -159,8 +173,10 @@ def extract_transcript(payload: ExtractRequest) -> dict:
                 encoding="utf-8",
             )
             saved_files["transcript"] = str(transcript_path)
+            _report(progress_callback, "transcript.md 已保存。")
 
         if payload.save_video and parsed.video_url:
+            _report(progress_callback, "正在保存视频文件。")
             saved_files["video"] = _download_url(
                 parsed.video_url,
                 export_dir,
@@ -171,6 +187,7 @@ def extract_transcript(payload: ExtractRequest) -> dict:
             )
 
         if payload.save_cover and parsed.cover_url:
+            _report(progress_callback, "正在保存封面文件。")
             saved_files["cover"] = _download_url(
                 parsed.cover_url,
                 export_dir,
@@ -181,6 +198,7 @@ def extract_transcript(payload: ExtractRequest) -> dict:
             )
 
         if payload.save_images and parsed.image_list:
+            _report(progress_callback, "正在保存图集文件。")
             for index, image_url in enumerate(parsed.image_list, start=1):
                 saved_files["images"].append(
                     _download_url(
@@ -202,6 +220,7 @@ def extract_transcript(payload: ExtractRequest) -> dict:
         }
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+        _report(progress_callback, "临时文件已清理。")
 
 
 def stream_media_asset(
@@ -403,32 +422,70 @@ def _download_url(
 
 
 def _download_to_path(url: str, target_path: Path, headers: Optional[dict] = None, referer: Optional[str] = None) -> None:
-    request_headers = _build_headers(headers, referer, url)
-    response = requests.get(
-        url,
-        headers=request_headers,
-        stream=True,
-        allow_redirects=True,
-        timeout=REQUEST_TIMEOUT,
-    )
-    if response.status_code == 403 and _is_douyin_cdn_request(url, referer):
-        response.close()
-        retry_headers = dict(request_headers)
-        retry_headers["Range"] = "bytes=0-"
-        retry_headers["Accept"] = "video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8"
-        response = requests.get(
-            url,
-            headers=retry_headers,
-            stream=True,
-            allow_redirects=True,
-            timeout=REQUEST_TIMEOUT,
-        )
-    response.raise_for_status()
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    with target_path.open("wb") as file_obj:
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                file_obj.write(chunk)
+    temp_path = target_path.with_suffix(f"{target_path.suffix}.part")
+    last_error: Exception | None = None
+
+    for attempt in range(1, DOWNLOAD_RETRY_ATTEMPTS + 1):
+        response = None
+        try:
+            request_headers = _build_headers(headers, referer, url)
+            response = requests.get(
+                url,
+                headers=request_headers,
+                stream=True,
+                allow_redirects=True,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if response.status_code == 403 and _is_douyin_cdn_request(url, referer):
+                response.close()
+                retry_headers = dict(request_headers)
+                retry_headers["Range"] = "bytes=0-"
+                retry_headers["Accept"] = "video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8"
+                response = requests.get(
+                    url,
+                    headers=retry_headers,
+                    stream=True,
+                    allow_redirects=True,
+                    timeout=REQUEST_TIMEOUT,
+                )
+
+            response.raise_for_status()
+            expected_size = response.headers.get("Content-Length")
+            bytes_written = 0
+
+            with temp_path.open("wb") as file_obj:
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        file_obj.write(chunk)
+                        bytes_written += len(chunk)
+
+            if expected_size and bytes_written < int(expected_size):
+                raise RequestsConnectionError(
+                    f"下载不完整，期望 {expected_size} 字节，实际 {bytes_written} 字节。"
+                )
+
+            temp_path.replace(target_path)
+            return
+        except (ChunkedEncodingError, RequestsConnectionError, ReadTimeout, OSError, ValueError) as exc:
+            last_error = exc
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            if attempt >= DOWNLOAD_RETRY_ATTEMPTS:
+                break
+            logger.warning(
+                "下载资源失败，准备重试：attempt=%s/%s url=%s error=%s",
+                attempt,
+                DOWNLOAD_RETRY_ATTEMPTS,
+                url,
+                exc,
+            )
+            time.sleep(min(attempt, 3))
+        finally:
+            if response is not None:
+                response.close()
+
+    raise ValueError(f"下载媒体资源失败，重试 {DOWNLOAD_RETRY_ATTEMPTS} 次后仍未成功：{last_error}")
 
 
 def _is_douyin_cdn_request(request_url: Optional[str], referer: Optional[str]) -> bool:

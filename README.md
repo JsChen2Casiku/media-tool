@@ -5,19 +5,20 @@
 - 多平台短视频链接解析
 - 视频、音频、封面、图集预览
 - 按资源单独下载
-- 基于免费自托管 Whisper ASR 的文案提取
+- 基于免费自托管 Whisper ASR 的异步文案提取
 - Web UI、HTTP API、CLI、MCP Server
 - Docker Compose 部署
 
-当前项目的转写能力已经统一切换到免费开源、自托管的 Whisper ASR Web Service。
+当前项目的转写能力已经统一切换到免费开源、自托管的 Whisper ASR Web Service，并采用“异步任务 + 前端轮询”的方式，避免长请求超时。
 
 ## 功能概览
 
 - 解析短视频分享文案或链接
 - 返回视频地址、音频地址、封面地址、图集地址
 - 浏览器内直接预览视频、音频、封面和图集
-- 每个资源单独下载，不再保留一个总下载按钮
+- 每个资源单独下载，不再保留总下载按钮
 - 转写时优先使用 `audio_url`，没有音频地址时回退到 `video_url`
+- 创建异步转写任务，前端轮询结果
 - 转写结束后自动删除临时下载文件
 
 ## 项目结构
@@ -73,9 +74,6 @@ copy .env.example .env
 示例：
 
 ```env
-MEDIA_TOOL_PIP_INDEX_URL=https://pypi.org/simple
-MEDIA_TOOL_PIP_EXTRA_INDEX_URL=
-
 MEDIA_TOOL_FFMPEG_PATH=
 MEDIA_TOOL_REQUEST_TIMEOUT=30
 MAX_CACHE_SIZE_MB=15
@@ -125,8 +123,6 @@ curl http://localhost:8000/api/health
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | Docker 构建时使用的 Python 包源 |
-| `MEDIA_TOOL_PIP_EXTRA_INDEX_URL` | 空 | 可选的额外 Python 包源 |
 | `MEDIA_TOOL_FFMPEG_PATH` | 空 | 本地运行时可显式指定 `ffmpeg.exe` 路径 |
 | `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 常规 HTTP 请求超时，单位秒 |
 | `MAX_CACHE_SIZE_MB` | `15` | 缓存大小上限 |
@@ -140,6 +136,9 @@ curl http://localhost:8000/api/health
 | `MEDIA_TOOL_ASR_ENGINE` | `faster_whisper` | Whisper 服务引擎 |
 | `MEDIA_TOOL_ASR_MODEL` | `small` | Whisper 模型大小 |
 | `MEDIA_TOOL_ASR_DEVICE` | `cpu` | Whisper 运行设备，可设为 `cpu` 或 `cuda` |
+| `MEDIA_TOOL_DOWNLOAD_RETRY_ATTEMPTS` | `3` | 下载媒体源文件时的自动重试次数 |
+| `MEDIA_TOOL_JOB_WORKERS` | `2` | 后台异步转写线程数 |
+| `MEDIA_TOOL_JOB_MAX_LOGS` | `120` | 单个任务保留的最大日志条数 |
 
 ## Web UI
 
@@ -154,14 +153,18 @@ http://localhost:8000/
 - 粘贴分享文案或链接
 - 配置 Whisper ASR 服务地址、任务、语言和超时
 - 选择是否启用重编码、逐词时间戳、静音过滤
-- 点击“解析链接”查看媒体信息
+- 点击“解析链接”查看精简后的媒体信息
+- 点击“开始转写”创建异步任务，前端自动轮询结果
 - 在预览区分别预览和下载视频、音频、封面、图集
-- 点击“提取文案”执行转写
 
 ### 界面说明
 
-- 摘要区不再展示作者信息
-- 下载入口在各预览卡片内部
+- 顶部已改成紧凑工具台，不再使用大面积说明区
+- 右侧固定显示执行状态、任务日志和媒体信息
+- 日志区域固定高度，超出后内部滚动
+- 提供“复制日志”按钮，方便排查任务失败原因
+- 视频预览位于左侧，音频和封面位于右侧上下排列
+- 不再展示视频、音频、封面地址文本
 - 文案提取完成后，服务端会自动删除临时下载文件
 
 ## HTTP API
@@ -209,6 +212,8 @@ curl http://localhost:8000/api/health
 
 ### `POST /api/extract`
 
+用于创建异步转写任务。
+
 请求：
 
 ```json
@@ -225,7 +230,79 @@ curl http://localhost:8000/api/health
 }
 ```
 
-返回中的 `transcription` 字段会包含：
+返回示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "job_id": "2d0d6f8d7a9f4e07a68b95da8c2f1f6b",
+    "status": "queued",
+    "created_at": "2026-03-20T13:22:00Z",
+    "updated_at": "2026-03-20T13:22:00Z",
+    "logs": [
+      "[13:22:00] 任务已创建，等待执行。"
+    ],
+    "result": null,
+    "error": null
+  }
+}
+```
+
+### `GET /api/jobs/{job_id}`
+
+用于轮询异步转写任务状态。
+
+返回示例：
+
+```json
+{
+  "success": true,
+  "data": {
+    "job_id": "2d0d6f8d7a9f4e07a68b95da8c2f1f6b",
+    "status": "succeeded",
+    "created_at": "2026-03-20T13:22:00Z",
+    "updated_at": "2026-03-20T13:23:12Z",
+    "logs": [
+      "[13:22:00] 任务已创建，等待执行。",
+      "[13:22:01] 开始执行转写任务。",
+      "[13:22:05] 源文件下载完成，开始提交 Whisper ASR。",
+      "[13:23:12] 任务执行完成。"
+    ],
+    "result": {
+      "media": {},
+      "transcript": "这里是转写后的文案",
+      "output_dir": "/app/runtime/storage/exports/demo",
+      "saved_files": {
+        "transcript": "/app/runtime/storage/exports/demo/transcript.md",
+        "video": null,
+        "cover": null,
+        "images": []
+      },
+      "transcription": {
+        "provider": "whisper-asr-webservice",
+        "base_url": "http://whisper-asr:9000",
+        "endpoint": "http://whisper-asr:9000/asr",
+        "task": "transcribe",
+        "language": "zh",
+        "detected_language": "zh",
+        "segment_count": 12,
+        "cleanup": "转写完成后自动删除临时下载文件"
+      }
+    },
+    "error": null
+  }
+}
+```
+
+任务状态说明：
+
+- `queued`：已创建，等待执行
+- `running`：后台执行中
+- `succeeded`：任务完成
+- `failed`：任务失败
+
+任务完成后，`result.transcription` 字段会包含：
 
 - `provider`
 - `base_url`
@@ -251,6 +328,8 @@ python cli.py download -t "https://www.douyin.com/video/7396822576074460467"
 ```
 
 ### 提取文案
+
+当前 CLI 仍然是同步等待模式，适合本地直接运行，不经过 Cloudflare。
 
 ```powershell
 python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --transcription-base-url http://127.0.0.1:9000 --transcription-language zh
@@ -312,6 +391,44 @@ python -m uvicorn app:app --host 0.0.0.0 --port 8051 --reload
 http://127.0.0.1:8051/
 ```
 
+## Windows 本地启动 whisper-asr
+
+建议直接使用 Docker Desktop。
+
+### 基础启动
+
+```powershell
+docker run -d `
+  --name whisper-asr `
+  -p 9000:9000 `
+  -e ASR_ENGINE=faster_whisper `
+  -e ASR_MODEL=small `
+  -e ASR_DEVICE=cpu `
+  onerahmet/openai-whisper-asr-webservice:latest
+```
+
+### 带模型缓存目录启动
+
+```powershell
+New-Item -ItemType Directory -Force -Path D:\Code\Python\Ai\wechat\media-tool\whisper-cache | Out-Null
+
+docker run -d `
+  --name whisper-asr `
+  -p 9000:9000 `
+  -e ASR_ENGINE=faster_whisper `
+  -e ASR_MODEL=small `
+  -e ASR_DEVICE=cpu `
+  -e ASR_MODEL_PATH=/data/whisper `
+  -v D:\Code\Python\Ai\wechat\media-tool\whisper-cache:/data/whisper `
+  onerahmet/openai-whisper-asr-webservice:latest
+```
+
+启动后访问：
+
+```text
+http://127.0.0.1:9000/docs
+```
+
 ## ffmpeg 说明
 
 当前版本中：
@@ -335,19 +452,30 @@ MEDIA_TOOL_FFMPEG_PATH=D:\Env\FFmpeg\bin\ffmpeg.exe
 
 通常是 `MEDIA_TOOL_TRANSCRIPTION_BASE_URL` 配错了。
 
-Whisper 服务正确地址应当是：
+本地运行 `media-tool`：
 
 ```text
 http://127.0.0.1:9000
 ```
 
-或者在 Compose 内部使用：
+Docker Compose 内部：
 
 ```text
 http://whisper-asr:9000
 ```
 
-### 2. 长视频转写不完整
+### 2. 网页提取文案超时
+
+如果页面走了 Nginx 或 Cloudflare，长请求很容易超时。
+
+当前 Web UI 已经改成异步任务 + 轮询结果：
+
+1. `POST /api/extract` 创建任务
+2. `GET /api/jobs/{job_id}` 轮询状态
+
+因此不再依赖一个长连接等待完整转写。
+
+### 3. 长视频转写不完整
 
 当前实现会优先下载 `audio_url` 再上传到 Whisper 服务，这比直接用视频抽音频更稳定。
 
@@ -355,15 +483,15 @@ http://whisper-asr:9000
 
 - 把 `MEDIA_TOOL_ASR_MODEL` 从 `small` 提高到 `medium`
 - 延长 `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT`
-- 打开 `MEDIA_TOOL_TRANSCRIPTION_ENCODE=true`
+- 保持 `MEDIA_TOOL_TRANSCRIPTION_ENCODE=true`
 
-### 3. Windows 安装依赖失败
+### 4. Windows 安装依赖失败
 
 如果你在 Windows 上遇到编译型依赖报错，优先确认：
 
 - 使用的是 `Python 3.11` 或 `Python 3.12`
 - 已先执行 `python -m pip install --upgrade pip setuptools wheel`
 
-### 4. Docker 首次启动很慢
+### 5. Docker 首次启动很慢
 
 这是 Whisper 模型首次下载造成的，属于正常现象。
