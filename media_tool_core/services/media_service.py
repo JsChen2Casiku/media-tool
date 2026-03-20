@@ -18,6 +18,11 @@ from media_tool_core.configs.general_constants import DOMAIN_TO_PLATFORM, PROJEC
 from media_tool_core.configs.logging_config import get_logger
 from media_tool_core.downloader_factory import DownloaderFactory
 from media_tool_core.schemas import DownloadRequest, ExtractRequest
+from media_tool_core.services.llm_review_service import (
+    LlmReviewConfig,
+    LlmReviewResult,
+    create_reviewer,
+)
 from media_tool_core.services.transcription_service import (
     TranscriptionConfig,
     TranscriptionResult,
@@ -28,7 +33,7 @@ from media_tool_core.utils.web_fetcher import UrlParser, WebFetcher
 logger = get_logger(__name__)
 REQUEST_TIMEOUT = int(os.getenv("MEDIA_TOOL_REQUEST_TIMEOUT", "30"))
 DOWNLOAD_RETRY_ATTEMPTS = int(os.getenv("MEDIA_TOOL_DOWNLOAD_RETRY_ATTEMPTS", "3"))
-STORAGE_ROOT = Path(os.getenv("MEDIA_TOOL_STORAGE_ROOT", str(Path(PROJECT_ROOT) / "storage")))
+STORAGE_ROOT = Path(os.getenv("MEDIA_TOOL_STORAGE_ROOT", str(Path(PROJECT_ROOT) / "runtime" / "storage")))
 TEMP_ROOT = STORAGE_ROOT / "temp"
 EXPORT_ROOT = STORAGE_ROOT / "exports"
 
@@ -156,6 +161,13 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
         transcription_vad_filter=payload.transcription_vad_filter,
     )
     transcriber = create_transcriber(config)
+    review_config = LlmReviewConfig.from_values(
+        llm_api_base=payload.llm_api_base,
+        llm_api_key=payload.llm_api_key,
+        llm_model=payload.llm_model,
+        llm_timeout=payload.llm_timeout,
+    )
+    reviewer = create_reviewer(review_config)
 
     export_dir = _prepare_export_dir(payload.output_dir, parsed.video_id, parsed.title)
     temp_dir = TEMP_ROOT / str(uuid.uuid4())
@@ -176,8 +188,42 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
         _report(progress_callback, "ASR 正在识别音频。", 56, "ASR 正在识别音频")
 
         transcription_result = transcriber.transcribe(source_path)
-        transcript_text = transcription_result.text.strip()
-        _report(progress_callback, "ASR 转写完成，正在整理结果。", 84, "正在整理转写结果")
+        transcript_raw = transcription_result.text.strip()
+        transcript_text = transcript_raw
+        llm_review_result = LlmReviewResult(
+            text=transcript_raw,
+            status="skipped",
+            applied=False,
+            error="未执行文案校正。",
+        )
+
+        if review_config.is_configured:
+            _report(progress_callback, "ASR 转写完成，开始调用 LLM 校正文案。", 74, "正在调用 LLM 校正")
+            try:
+                llm_review_result = reviewer.review(
+                    transcript_raw,
+                    title=parsed.title,
+                    platform=parsed.platform,
+                )
+                transcript_text = llm_review_result.text.strip() or transcript_raw
+                _report(progress_callback, "LLM 文案校正完成，正在整理结果。", 84, "正在整理转写结果")
+            except Exception as exc:
+                llm_review_result = LlmReviewResult(
+                    text=transcript_raw,
+                    status="failed",
+                    applied=False,
+                    error=str(exc),
+                )
+                transcript_text = transcript_raw
+                _report(progress_callback, f"LLM 校正失败，已回退 ASR 原文：{exc}", 84, "LLM 校正失败，已回退原文")
+        else:
+            llm_review_result = LlmReviewResult(
+                text=transcript_raw,
+                status="skipped",
+                applied=False,
+                error="未配置 LLM API Key，已跳过文案校正。",
+            )
+            _report(progress_callback, "未配置 LLM API Key，跳过文案校正。", 84, "正在整理转写结果")
 
         saved_files = {"transcript": None, "video": None, "cover": None, "images": []}
         progress_map = {}
@@ -195,7 +241,15 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
             _report(progress_callback, "正在写入 transcript.md。", progress_map["transcript"], "正在写入转写文稿")
             transcript_path = export_dir / "transcript.md"
             transcript_path.write_text(
-                _build_transcript_markdown(parsed, transcription_result, config),
+                _build_transcript_markdown(
+                    parsed,
+                    transcription_result,
+                    config,
+                    transcript_text=transcript_text,
+                    transcript_raw=transcript_raw,
+                    llm_review_config=review_config,
+                    llm_review_result=llm_review_result,
+                ),
                 encoding="utf-8",
             )
             saved_files["transcript"] = str(transcript_path)
@@ -249,9 +303,11 @@ def extract_transcript(payload: ExtractRequest, progress_callback=None) -> dict:
         return {
             "media": parsed.to_dict(),
             "transcript": transcript_text,
+            "transcript_raw": transcript_raw,
             "output_dir": str(export_dir),
             "saved_files": saved_files,
             "transcription": _build_transcription_metadata(config, transcription_result),
+            "llm_review": _build_llm_review_metadata(review_config, llm_review_result),
         }
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -557,7 +613,29 @@ def _build_transcription_metadata(config: TranscriptionConfig, result: Transcrip
         "segment_count": len(result.segments),
     }
 
-def _build_transcript_markdown(parsed: ParsedMedia, result: TranscriptionResult, config: TranscriptionConfig) -> str:
+def _build_llm_review_metadata(config: LlmReviewConfig, result: LlmReviewResult) -> dict:
+    return {
+        "provider": "openai-compatible",
+        "enabled": config.is_configured,
+        "base_url": config.api_base,
+        "endpoint": config.endpoint,
+        "model": config.model,
+        "timeout": config.timeout,
+        "status": result.status,
+        "applied": result.applied,
+        "error": result.error,
+    }
+
+
+def _build_transcript_markdown(
+    parsed: ParsedMedia,
+    result: TranscriptionResult,
+    config: TranscriptionConfig,
+    transcript_text: str,
+    transcript_raw: str,
+    llm_review_config: LlmReviewConfig,
+    llm_review_result: LlmReviewResult,
+) -> str:
     lines = [
         f"# {parsed.title or '未命名视频'}",
         "",
@@ -571,10 +649,21 @@ def _build_transcript_markdown(parsed: ParsedMedia, result: TranscriptionResult,
         f"| 转写任务 | `{config.task}` |",
         f"| 指定语言 | `{config.language or 'auto'}` |",
         f"| 检测语言 | `{result.language or 'unknown'}` |",
+        f"| 文案校正模型 | `{llm_review_config.model}` |",
+        f"| 文案校正状态 | `{llm_review_result.status}` |",
         "",
-        "## 文案",
+        "## 校正后文案",
         "",
-        result.text.strip(),
+        transcript_text.strip(),
         "",
     ]
+    if llm_review_result.applied:
+        lines.extend(
+            [
+                "## 原始 ASR 文案",
+                "",
+                transcript_raw.strip(),
+                "",
+            ]
+        )
     return "\n".join(lines)

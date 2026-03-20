@@ -51,7 +51,7 @@ class TranscriptionConfig:
 
         task = (transcription_task or os.getenv("MEDIA_TOOL_TRANSCRIPTION_TASK") or "transcribe").strip().lower()
         if task not in {"transcribe", "translate"}:
-            raise ValueError("transcription_task 只支持 transcribe 或 translate。")
+            raise ValueError("transcription_task 仅支持 transcribe 或 translate。")
 
         language = (transcription_language or os.getenv("MEDIA_TOOL_TRANSCRIPTION_LANGUAGE") or "").strip() or None
         timeout = transcription_timeout or int(os.getenv("MEDIA_TOOL_TRANSCRIPTION_TIMEOUT", "300"))

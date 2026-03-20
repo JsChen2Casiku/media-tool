@@ -23,6 +23,14 @@
           </button>
           <small id="theme-toggle-hint">跟随当前页面主题，可手动切换。</small>
         </article>
+        <article class="stat-chip config-chip">
+          <span class="stat-label">配置中心</span>
+          <button id="config-center-trigger" class="theme-toggle config-center-button" type="button" aria-label="打开配置中心">
+            <span class="theme-toggle-icon">⚙</span>
+            <span>配置</span>
+          </button>
+          <small id="config-summary">集中式配置中心</small>
+        </article>
         <article class="stat-chip">
           <span class="stat-label">服务状态</span>
           <strong id="health-status">检测中</strong>
@@ -78,24 +86,31 @@
             <span class="field-label">转写超时</span>
             <input id="transcription-timeout" class="field-control" type="number" min="30" step="10" placeholder="300">
           </label>
-        </div>
-
-        <div class="toggle-grid">
-          <label class="toggle-item">
-            <input id="save-transcript" type="checkbox" checked>
-            <span>保存 transcript.md</span>
+          <label class="field-group field-span-2">
+            <span class="field-label">LLM API 地址</span>
+            <input
+              id="llm-api-base"
+              class="field-control"
+              type="text"
+              placeholder="https://api.openai.com/v1"
+            >
           </label>
-          <label class="toggle-item">
-            <input id="transcription-encode" type="checkbox" checked>
-            <span>转写前重编码</span>
+          <label class="field-group field-span-2">
+            <span class="field-label">LLM API Key</span>
+            <input
+              id="llm-api-key"
+              class="field-control"
+              type="password"
+              placeholder="留空则跳过文案校正"
+            >
           </label>
-          <label class="toggle-item">
-            <input id="transcription-word-timestamps" type="checkbox">
-            <span>逐词时间戳</span>
+          <label class="field-group">
+            <span class="field-label">LLM 模型</span>
+            <input id="llm-model" class="field-control" type="text" placeholder="gpt-5.4">
           </label>
-          <label class="toggle-item">
-            <input id="transcription-vad-filter" type="checkbox">
-            <span>静音过滤</span>
+          <label class="field-group">
+            <span class="field-label">LLM 超时</span>
+            <input id="llm-timeout" class="field-control" type="number" min="10" step="10" placeholder="90">
           </label>
         </div>
 
@@ -165,6 +180,65 @@
         <pre id="transcript-output" class="transcript-box">暂无转写内容</pre>
       </section>
     </main>
+
+    <div id="config-modal" class="config-modal is-hidden" aria-hidden="true">
+      <div class="config-modal-backdrop" data-config-close="true"></div>
+      <section class="config-modal-dialog card" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
+        <div class="config-modal-head">
+          <div>
+            <p class="eyebrow section-eyebrow">配置</p>
+            <h2 id="config-modal-title">配置中心</h2>
+            <p class="config-modal-description">集中管理转写保存和识别增强开关，保持主界面更紧凑。</p>
+          </div>
+          <button id="config-modal-close" class="button button-secondary button-small" type="button">关闭</button>
+        </div>
+        <div class="toggle-grid config-toggle-grid">
+          <label class="toggle-item">
+            <input id="save-transcript" type="checkbox" checked>
+            <span>保存 transcript.md</span>
+          </label>
+          <label class="toggle-item">
+            <input id="transcription-encode" type="checkbox" checked>
+            <span>转写前重编码</span>
+          </label>
+          <label class="toggle-item">
+            <input id="transcription-word-timestamps" type="checkbox">
+            <span>逐词时间戳</span>
+          </label>
+          <label class="toggle-item">
+            <input id="transcription-vad-filter" type="checkbox">
+            <span>静音过滤</span>
+          </label>
+        </div>
+        <div class="config-account">
+          <div class="subsection-head config-subsection-head">
+            <h3>账户安全</h3>
+          </div>
+          <div class="field-grid">
+            <label class="field-group field-span-2">
+              <span class="field-label">登录账号</span>
+              <input id="auth-username" class="field-control" type="text" readonly>
+            </label>
+            <label class="field-group">
+              <span class="field-label">当前密码</span>
+              <input id="current-password" class="field-control" type="password" placeholder="请输入当前密码">
+            </label>
+            <label class="field-group">
+              <span class="field-label">新密码</span>
+              <input id="new-password" class="field-control" type="password" placeholder="至少 6 位">
+            </label>
+            <label class="field-group field-span-2">
+              <span class="field-label">确认新密码</span>
+              <input id="confirm-password" class="field-control" type="password" placeholder="再次输入新密码">
+            </label>
+          </div>
+          <div class="config-actions">
+            <button id="change-password-action" class="button button-accent" type="button">修改密码</button>
+            <button id="logout-action" class="button button-secondary" type="button">退出登录</button>
+          </div>
+        </div>
+      </section>
+    </div>
 
     <footer class="platform-footer card">
       <div class="section-head footer-head">

@@ -1,11 +1,13 @@
 import os
+from pathlib import Path
 from typing import Final
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
+RUNTIME_ROOT = os.getenv("MEDIA_TOOL_RUNTIME_ROOT", os.path.join(PROJECT_ROOT, "runtime"))
 DOMAIN = os.getenv("DOMAIN", "")
 
-STORAGE_ROOT = os.getenv("MEDIA_TOOL_STORAGE_ROOT", os.path.join(PROJECT_ROOT, "storage"))
-LOG_ROOT = os.getenv("MEDIA_TOOL_LOG_ROOT", os.path.join(PROJECT_ROOT, "logs"))
+STORAGE_ROOT = os.getenv("MEDIA_TOOL_STORAGE_ROOT", os.path.join(RUNTIME_ROOT, "storage"))
+LOG_ROOT = os.getenv("MEDIA_TOOL_LOG_ROOT", os.path.join(RUNTIME_ROOT, "logs"))
 SAVE_VIDEO_PATH = os.path.join(STORAGE_ROOT, "videos")
 SAVE_IMAGE_PATH = os.path.join(STORAGE_ROOT, "images")
 SAVE_COVER_PATH = os.path.join(STORAGE_ROOT, "covers")

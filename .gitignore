@@ -2,8 +2,11 @@ __pycache__/
 *.py[cod]
 *.pyo
 
-.env
+.env.local
+.env.*.local
 
+runtime/
+whisper-cache/
 media_tool_core/logs/
 media_tool_core/storage/
 media_tool_storage/
@@ -11,3 +14,10 @@ media_tool_logs/
 
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+*.log
+*.tmp
+*.temp

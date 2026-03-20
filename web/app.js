@@ -8,6 +8,10 @@ const DEFAULTS = {
   transcriptionEncode: true,
   transcriptionWordTimestamps: false,
   transcriptionVadFilter: false,
+  llmApiBase: "https://api.openai.com/v1",
+  llmApiKey: "",
+  llmModel: "gpt-5.4",
+  llmTimeout: "90",
   saveTranscript: true,
   theme: "system",
 };
@@ -36,7 +40,21 @@ const elements = {
   transcriptionEncode: qs("#transcription-encode"),
   transcriptionWordTimestamps: qs("#transcription-word-timestamps"),
   transcriptionVadFilter: qs("#transcription-vad-filter"),
+  llmApiBase: qs("#llm-api-base"),
+  llmApiKey: qs("#llm-api-key"),
+  llmModel: qs("#llm-model"),
+  llmTimeout: qs("#llm-timeout"),
   saveTranscript: qs("#save-transcript"),
+  configCenterTrigger: qs("#config-center-trigger"),
+  configSummary: qs("#config-summary"),
+  configModal: qs("#config-modal"),
+  configModalClose: qs("#config-modal-close"),
+  authUsername: qs("#auth-username"),
+  currentPassword: qs("#current-password"),
+  newPassword: qs("#new-password"),
+  confirmPassword: qs("#confirm-password"),
+  changePasswordAction: qs("#change-password-action"),
+  logoutAction: qs("#logout-action"),
   parseAction: qs("#parse-action"),
   extractAction: qs("#extract-action"),
   clearResults: qs("#clear-results"),
@@ -105,6 +123,50 @@ function setText(element, value) {
   if (hasElement(element)) {
     element.textContent = value;
   }
+}
+
+function redirectToLogin() {
+  window.location.href = "/login";
+}
+
+function openConfigModal() {
+  if (!hasElement(elements.configModal)) {
+    return;
+  }
+  elements.configModal.classList.remove("is-hidden");
+  elements.configModal.setAttribute("aria-hidden", "false");
+}
+
+function closeConfigModal() {
+  if (!hasElement(elements.configModal)) {
+    return;
+  }
+  elements.configModal.classList.add("is-hidden");
+  elements.configModal.setAttribute("aria-hidden", "true");
+}
+
+function hasStoredConfigChanges(config) {
+  if (!config || typeof config !== "object") {
+    return false;
+  }
+  return (
+    String(config.transcriptionBaseUrl ?? DEFAULTS.transcriptionBaseUrl) !== DEFAULTS.transcriptionBaseUrl
+    || String(config.transcriptionTask ?? DEFAULTS.transcriptionTask) !== DEFAULTS.transcriptionTask
+    || String(config.transcriptionLanguage ?? DEFAULTS.transcriptionLanguage) !== DEFAULTS.transcriptionLanguage
+    || String(config.transcriptionTimeout ?? DEFAULTS.transcriptionTimeout) !== DEFAULTS.transcriptionTimeout
+    || Boolean(config.transcriptionEncode ?? DEFAULTS.transcriptionEncode) !== DEFAULTS.transcriptionEncode
+    || Boolean(config.transcriptionWordTimestamps ?? DEFAULTS.transcriptionWordTimestamps) !== DEFAULTS.transcriptionWordTimestamps
+    || Boolean(config.transcriptionVadFilter ?? DEFAULTS.transcriptionVadFilter) !== DEFAULTS.transcriptionVadFilter
+    || String(config.llmApiBase ?? DEFAULTS.llmApiBase) !== DEFAULTS.llmApiBase
+    || String(config.llmApiKey ?? DEFAULTS.llmApiKey) !== DEFAULTS.llmApiKey
+    || String(config.llmModel ?? DEFAULTS.llmModel) !== DEFAULTS.llmModel
+    || String(config.llmTimeout ?? DEFAULTS.llmTimeout) !== DEFAULTS.llmTimeout
+    || Boolean(config.saveTranscript ?? DEFAULTS.saveTranscript) !== DEFAULTS.saveTranscript
+  );
+}
+
+function updateConfigSummary(saved = false) {
+  setText(elements.configSummary, saved ? "集中式配置中心已保存" : "集中式配置中心");
 }
 
 function setHtml(element, value) {
@@ -247,10 +309,15 @@ function saveConfig() {
       DEFAULTS.transcriptionWordTimestamps,
     ),
     transcriptionVadFilter: getChecked(elements.transcriptionVadFilter, DEFAULTS.transcriptionVadFilter),
+    llmApiBase: getTrimmedValue(elements.llmApiBase, DEFAULTS.llmApiBase),
+    llmApiKey: getValue(elements.llmApiKey, DEFAULTS.llmApiKey),
+    llmModel: getTrimmedValue(elements.llmModel, DEFAULTS.llmModel),
+    llmTimeout: getTrimmedValue(elements.llmTimeout, DEFAULTS.llmTimeout),
     saveTranscript: getChecked(elements.saveTranscript, DEFAULTS.saveTranscript),
     theme: localStorage.getItem("media-tool-theme") || DEFAULTS.theme,
   };
   localStorage.setItem("media-tool-config", JSON.stringify(payload));
+  updateConfigSummary(true);
 }
 
 function restoreConfig() {
@@ -265,7 +332,12 @@ function restoreConfig() {
     stored.transcriptionWordTimestamps ?? DEFAULTS.transcriptionWordTimestamps,
   );
   setChecked(elements.transcriptionVadFilter, stored.transcriptionVadFilter ?? DEFAULTS.transcriptionVadFilter);
+  setValue(elements.llmApiBase, stored.llmApiBase || DEFAULTS.llmApiBase);
+  setValue(elements.llmApiKey, stored.llmApiKey || DEFAULTS.llmApiKey);
+  setValue(elements.llmModel, stored.llmModel || DEFAULTS.llmModel);
+  setValue(elements.llmTimeout, stored.llmTimeout || DEFAULTS.llmTimeout);
   setChecked(elements.saveTranscript, stored.saveTranscript ?? DEFAULTS.saveTranscript);
+  updateConfigSummary(hasStoredConfigChanges(stored));
   applyTheme(stored.theme || localStorage.getItem("media-tool-theme") || DEFAULTS.theme, false);
 }
 
@@ -287,7 +359,7 @@ function updateThemeToggle(theme) {
   }
   setText(elements.themeToggleIcon, isDark ? "☾" : "☀");
   setText(elements.themeToggleText, isDark ? "暗黑" : "明亮");
-  setText(elements.themeToggleHint, theme === "system" ? "当前跟随系统主题。" : "已使用手动主题设置。");
+  setText(elements.themeToggleHint, theme === "system" ? "当前跟随系统主题" : "已使用手动主题设置");
 }
 function applyTheme(theme, persist = true) {
   const nextTheme = theme || DEFAULTS.theme;
@@ -717,13 +789,17 @@ function initInteractiveCards() {
     .forEach((card) => bindInteractiveCard(card));
 }
 
-function renderTranscript(text, transcription = null) {
+function renderTranscript(text, transcription = null, llmReview = null) {
   const lines = [];
   if (transcription) {
     lines.push(`转写服务: ${transcription.base_url || "-"}`);
     lines.push(`转写任务: ${transcription.task || "-"}`);
     lines.push(`转写语言: ${transcription.detected_language || transcription.language || "-"}`);
     lines.push(`分段数量: ${transcription.segment_count ?? "-"}`);
+    if (llmReview) {
+      lines.push(`文案校正: ${llmReview.applied ? "已启用" : llmReview.status || "未启用"}`);
+      lines.push(`校正模型: ${llmReview.model || "-"}`);
+    }
     lines.push("");
   }
   lines.push(text || "暂无转写内容");
@@ -742,10 +818,61 @@ async function requestJson(url, options) {
   const response = await fetch(url, options);
   const raw = await response.text();
   const payload = raw ? safeJsonParse(raw) : {};
+  if (response.status === 401) {
+    redirectToLogin();
+    throw new Error(payload.detail || "登录状态已失效，请重新登录。");
+  }
   if (!response.ok) {
     throw new Error(payload.detail || payload.message || raw || `请求失败: HTTP ${response.status}`);
   }
   return payload;
+}
+
+async function loadAuthProfile() {
+  const response = await requestJson("/api/auth/config", {
+    method: "GET",
+  });
+  setValue(elements.authUsername, response.data?.username || "");
+}
+
+async function changePassword() {
+  const currentPassword = getValue(elements.currentPassword).trim();
+  const newPassword = getValue(elements.newPassword).trim();
+  const confirmPassword = getValue(elements.confirmPassword).trim();
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    setStatus("error", "修改失败", "请完整填写当前密码、新密码和确认密码。");
+    return;
+  }
+
+  try {
+    const response = await requestJson("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      }),
+    });
+    setValue(elements.currentPassword, "");
+    setValue(elements.newPassword, "");
+    setValue(elements.confirmPassword, "");
+    setStatus("success", "密码已更新", response.data?.message || "集中式配置中心已保存。");
+    appendLocalLog("登录密码已通过配置中心更新。");
+  } catch (error) {
+    setStatus("error", "修改失败", error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function logout() {
+  try {
+    await requestJson("/api/auth/logout", {
+      method: "POST",
+    });
+  } finally {
+    redirectToLogin();
+  }
 }
 
 function getPayload() {
@@ -766,6 +893,13 @@ function getPayload() {
       DEFAULTS.transcriptionWordTimestamps,
     ),
     transcription_vad_filter: getChecked(elements.transcriptionVadFilter, DEFAULTS.transcriptionVadFilter),
+    llm_api_base: getTrimmedValue(elements.llmApiBase, DEFAULTS.llmApiBase),
+    llm_api_key: getValue(elements.llmApiKey, DEFAULTS.llmApiKey),
+    llm_model: getTrimmedValue(elements.llmModel, DEFAULTS.llmModel),
+    llm_timeout: Number.parseInt(
+      getTrimmedValue(elements.llmTimeout, DEFAULTS.llmTimeout),
+      10,
+    ),
     save_video: false,
     save_cover: false,
     save_images: false,
@@ -823,7 +957,7 @@ function consumeJobResult(job) {
     renderMediaInfo(result.media, result.transcription || null);
     renderPreview(result.media);
   }
-  renderTranscript(result.transcript || "", result.transcription || null);
+  renderTranscript(result.transcript || "", result.transcription || null, result.llm_review || null);
 }
 
 function applyJobState(job) {
@@ -1028,6 +1162,12 @@ function handlePreviewGridClick(event) {
 }
 
 function handleGlobalKeydown(event) {
+  if (hasElement(elements.configModal) && !elements.configModal.classList.contains("is-hidden")) {
+    if (event.key === "Escape") {
+      closeConfigModal();
+      return;
+    }
+  }
   if (hasElement(elements.imageLightbox) && !elements.imageLightbox.classList.contains("is-hidden")) {
     if (event.key === "Escape") {
       closeLightbox();
@@ -1078,6 +1218,34 @@ function bindEvents() {
     elements.themeToggle.addEventListener("click", toggleTheme);
   }
 
+  if (hasElement(elements.configCenterTrigger)) {
+    elements.configCenterTrigger.addEventListener("click", openConfigModal);
+  }
+
+  if (hasElement(elements.configModalClose)) {
+    elements.configModalClose.addEventListener("click", closeConfigModal);
+  }
+
+  if (hasElement(elements.configModal)) {
+    elements.configModal.addEventListener("click", (event) => {
+      if (event.target instanceof HTMLElement && event.target.dataset.configClose === "true") {
+        closeConfigModal();
+      }
+    });
+  }
+
+  if (hasElement(elements.changePasswordAction)) {
+    elements.changePasswordAction.addEventListener("click", () => {
+      void changePassword();
+    });
+  }
+
+  if (hasElement(elements.logoutAction)) {
+    elements.logoutAction.addEventListener("click", () => {
+      void logout();
+    });
+  }
+
   if (hasElement(elements.previewGrid)) {
     elements.previewGrid.addEventListener("click", handlePreviewGridClick);
   }
@@ -1112,10 +1280,16 @@ function bindEvents() {
     elements.transcriptionEncode,
     elements.transcriptionWordTimestamps,
     elements.transcriptionVadFilter,
+    elements.llmApiBase,
+    elements.llmApiKey,
+    elements.llmModel,
+    elements.llmTimeout,
     elements.saveTranscript,
   ].forEach((element) => {
     if (hasElement(element)) {
-      element.addEventListener("change", saveConfig);
+      element.addEventListener("change", () => {
+        saveConfig();
+      });
     }
   });
 
@@ -1135,6 +1309,7 @@ function init() {
   clearResults();
   bindEvents();
   initInteractiveCards();
+  void loadAuthProfile();
   void checkHealth();
 }
 
@@ -1143,5 +1318,3 @@ if (document.readyState === "loading") {
 } else {
   init();
 }
-
-

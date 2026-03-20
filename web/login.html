@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>media-tool 登录</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <section class="login-hero">
+      <p class="eyebrow">MEDIA TOOL</p>
+      <h1>安全登录控制台</h1>
+      <p class="login-description">进入短视频解析转写控制台前，请先完成身份验证。登录页会跟随你当前保存的明亮或暗黑主题配置。</p>
+      <div class="login-feature-list">
+        <article class="login-feature card">
+          <span class="login-feature-label">安全入口</span>
+          <strong>账号密码由环境变量管理</strong>
+          <small>默认账号密码来自 `.env`，修改密码后会自动写入持久配置。</small>
+        </article>
+        <article class="login-feature card">
+          <span class="login-feature-label">工作台</span>
+          <strong>解析、预览、异步转写一体化</strong>
+          <small>登录后进入现有控制台，视觉语言与主系统保持一致。</small>
+        </article>
+      </div>
+    </section>
+
+    <section class="login-panel card">
+      <div class="login-panel-head">
+        <p class="eyebrow section-eyebrow">认证</p>
+        <h2>登录系统</h2>
+        <p id="login-message" class="login-message">请输入账号和密码。</p>
+      </div>
+      <form id="login-form" class="login-form">
+        <label class="field-group">
+          <span class="field-label">账号</span>
+          <input id="login-username" class="field-control" type="text" autocomplete="username" placeholder="请输入账号">
+        </label>
+        <label class="field-group">
+          <span class="field-label">密码</span>
+          <input id="login-password" class="field-control" type="password" autocomplete="current-password" placeholder="请输入密码">
+        </label>
+        <button id="login-submit" class="button button-accent login-submit" type="submit">进入系统</button>
+      </form>
+    </section>
+  </main>
+  <script src="/web/login.js"></script>
+</body>
+</html>

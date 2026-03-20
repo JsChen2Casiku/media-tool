@@ -33,8 +33,10 @@
         "extract",
         "-t",
         "https://www.douyin.com/video/7396822576074460467",
-        "--model",
-        "doubao-asr"
+        "--transcription-base-url",
+        "http://127.0.0.1:9000",
+        "--transcription-language",
+        "zh"
       ],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
