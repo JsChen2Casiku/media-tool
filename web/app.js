@@ -14,12 +14,13 @@ const DEFAULTS = {
 const POLL_INTERVAL_MS = 2000;
 
 const state = {
-  lastParse: null,
-  lastTranscript: "",
-  lastText: "",
   currentJobId: null,
   currentJobLogs: [],
+  lastParse: null,
+  lastText: "",
+  lastTranscript: "",
   pollTimer: null,
+  pollInFlight: false,
 };
 
 const elements = {
@@ -34,21 +35,21 @@ const elements = {
   saveTranscript: qs("#save-transcript"),
   parseAction: qs("#parse-action"),
   extractAction: qs("#extract-action"),
-  fillDemo: qs("#fill-demo"),
   clearResults: qs("#clear-results"),
-  copyTranscript: qs("#copy-transcript"),
+  fillDemo: qs("#fill-demo"),
   copyLog: qs("#copy-log"),
+  copyTranscript: qs("#copy-transcript"),
+  statusCard: qs("#status-card"),
   statusTitle: qs("#status-title"),
   statusMessage: qs("#status-message"),
-  statusCard: qs("#status-card"),
   healthStatus: qs("#health-status"),
   healthHint: qs("#health-hint"),
   jobStatus: qs("#job-status"),
   jobHint: qs("#job-hint"),
   mediaInfo: qs("#media-info"),
   previewGrid: qs("#preview-grid"),
-  transcriptOutput: qs("#transcript-output"),
   logOutput: qs("#log-output"),
+  transcriptOutput: qs("#transcript-output"),
 };
 
 function hasElement(element) {
@@ -91,16 +92,28 @@ function setHtml(element, value) {
   }
 }
 
-function setStatus(kind, title, message) {
-  if (hasElement(elements.statusCard)) {
-    elements.statusCard.className = `status-card ${kind}`;
+function setClassName(element, value) {
+  if (hasElement(element)) {
+    element.className = value;
   }
+}
+
+function toggleDisabled(disabled) {
+  [elements.parseAction, elements.extractAction].forEach((element) => {
+    if (hasElement(element)) {
+      element.disabled = disabled;
+    }
+  });
+}
+
+function setStatus(kind, title, message) {
+  setClassName(elements.statusCard, `status-panel status-${kind}`);
   setText(elements.statusTitle, title);
   setText(elements.statusMessage, message);
 }
 
-function setJobBadge(status, hint) {
-  setText(elements.jobStatus, status);
+function setJobBadge(title, hint) {
+  setText(elements.jobStatus, title);
   setText(elements.jobHint, hint);
 }
 
@@ -121,6 +134,11 @@ function safeJsonParse(text) {
   }
 }
 
+function appendLocalLog(message) {
+  const nextLines = [...state.currentJobLogs, `[${new Date().toLocaleTimeString("zh-CN", { hour12: false })}] ${message}`];
+  renderLogs(nextLines);
+}
+
 function saveConfig() {
   const payload = {
     transcriptionBaseUrl: getTrimmedValue(elements.transcriptionBaseUrl, DEFAULTS.transcriptionBaseUrl),
@@ -139,18 +157,18 @@ function saveConfig() {
 }
 
 function restoreConfig() {
-  const parsed = safeJsonParse(localStorage.getItem("media-tool-config") || "{}");
-  setValue(elements.transcriptionBaseUrl, parsed.transcriptionBaseUrl || DEFAULTS.transcriptionBaseUrl);
-  setValue(elements.transcriptionTask, parsed.transcriptionTask || DEFAULTS.transcriptionTask);
-  setValue(elements.transcriptionLanguage, parsed.transcriptionLanguage || DEFAULTS.transcriptionLanguage);
-  setValue(elements.transcriptionTimeout, parsed.transcriptionTimeout || DEFAULTS.transcriptionTimeout);
-  setChecked(elements.transcriptionEncode, parsed.transcriptionEncode ?? DEFAULTS.transcriptionEncode);
+  const stored = safeJsonParse(localStorage.getItem("media-tool-config") || "{}");
+  setValue(elements.transcriptionBaseUrl, stored.transcriptionBaseUrl || DEFAULTS.transcriptionBaseUrl);
+  setValue(elements.transcriptionTask, stored.transcriptionTask || DEFAULTS.transcriptionTask);
+  setValue(elements.transcriptionLanguage, stored.transcriptionLanguage || DEFAULTS.transcriptionLanguage);
+  setValue(elements.transcriptionTimeout, stored.transcriptionTimeout || DEFAULTS.transcriptionTimeout);
+  setChecked(elements.transcriptionEncode, stored.transcriptionEncode ?? DEFAULTS.transcriptionEncode);
   setChecked(
     elements.transcriptionWordTimestamps,
-    parsed.transcriptionWordTimestamps ?? DEFAULTS.transcriptionWordTimestamps,
+    stored.transcriptionWordTimestamps ?? DEFAULTS.transcriptionWordTimestamps,
   );
-  setChecked(elements.transcriptionVadFilter, parsed.transcriptionVadFilter ?? DEFAULTS.transcriptionVadFilter);
-  setChecked(elements.saveTranscript, parsed.saveTranscript ?? DEFAULTS.saveTranscript);
+  setChecked(elements.transcriptionVadFilter, stored.transcriptionVadFilter ?? DEFAULTS.transcriptionVadFilter);
+  setChecked(elements.saveTranscript, stored.saveTranscript ?? DEFAULTS.saveTranscript);
 }
 
 function buildAssetUrl(kind, index = null, disposition = "inline") {
@@ -164,15 +182,15 @@ function buildAssetUrl(kind, index = null, disposition = "inline") {
   return url.toString();
 }
 
-function createDownloadLink(kind, index = null, label = "下载") {
-  return `<a class="asset-button primary" href="${buildAssetUrl(kind, index, "attachment")}">${label}</a>`;
+function createDownloadLink(kind, label, index = null) {
+  return `<a class="asset-link" href="${buildAssetUrl(kind, index, "attachment")}">${escapeHtml(label)}</a>`;
 }
 
-function createMetaItem(label, value, wide = false) {
+function createInfoItem(label, value, wide = false) {
   return `
-    <article class="meta-item ${wide ? "wide" : ""}">
-      <span class="meta-label">${escapeHtml(label)}</span>
-      <strong class="meta-value">${escapeHtml(value)}</strong>
+    <article class="info-item ${wide ? "is-wide" : ""}">
+      <span class="item-label">${escapeHtml(label)}</span>
+      <strong class="item-value">${escapeHtml(value)}</strong>
     </article>
   `;
 }
@@ -180,137 +198,132 @@ function createMetaItem(label, value, wide = false) {
 function renderMediaInfo(media, transcription = null) {
   if (!media) {
     setHtml(elements.mediaInfo, "<p>暂无媒体信息</p>");
-    elements.mediaInfo.className = "meta-grid empty-state";
+    setClassName(elements.mediaInfo, "info-grid info-empty");
     return;
   }
 
   const items = [
-    createMetaItem("平台", media.platform || "-"),
-    createMetaItem("类型", media.is_image_post ? "图集" : "视频"),
-    createMetaItem("视频 ID", media.video_id || "-"),
-    createMetaItem("图集数量", Array.isArray(media.image_list) ? String(media.image_list.length) : "0"),
-    createMetaItem("标题", media.title || "-", true),
+    createInfoItem("平台", media.platform || "-"),
+    createInfoItem("类型", media.is_image_post ? "图集" : "视频"),
+    createInfoItem("视频 ID", media.video_id || "-"),
+    createInfoItem("图集数量", Array.isArray(media.image_list) ? String(media.image_list.length) : "0"),
+    createInfoItem("标题", media.title || "-", true),
   ];
 
   if (transcription) {
-    items.push(createMetaItem("转写服务", transcription.base_url || "-", true));
-    items.push(createMetaItem("检测语言", transcription.detected_language || transcription.language || "-"));
-    items.push(createMetaItem("分段数量", String(transcription.segment_count ?? "-")));
+    items.push(createInfoItem("转写语言", transcription.detected_language || transcription.language || "-", false));
+    items.push(createInfoItem("分段数量", String(transcription.segment_count ?? "-"), false));
+    items.push(createInfoItem("转写服务", transcription.base_url || "-", true));
   }
 
   setHtml(elements.mediaInfo, items.join(""));
-  elements.mediaInfo.className = "meta-grid";
+  setClassName(elements.mediaInfo, "info-grid");
 }
 
 function renderPreview(media) {
   if (!media) {
-    setHtml(elements.previewGrid, "<p>解析完成后，这里会展示视频、音频、封面和图集预览。</p>");
-    elements.previewGrid.className = "preview-area empty-state";
+    setHtml(elements.previewGrid, "<p>解析完成后，这里会显示视频、音频、封面和图集预览。</p>");
+    setClassName(elements.previewGrid, "preview-root preview-empty");
     return;
   }
 
-  const videoCard = media.video_url
+  const videoBlock = media.video_url
     ? `
-      <article class="preview-card video-card">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">VIDEO</span>
+            <p class="preview-label">Video</p>
             <h3>视频预览</h3>
           </div>
-          <div class="asset-actions">${createDownloadLink("video", null, "下载视频")}</div>
+          <div class="asset-actions">${createDownloadLink("video", "下载视频")}</div>
         </div>
-        <video class="media-player compact-video" controls preload="metadata" src="${buildAssetUrl("video")}"></video>
+        <video class="preview-video" controls preload="metadata" src="${buildAssetUrl("video")}"></video>
       </article>
     `
     : `
-      <article class="preview-card video-card empty-preview">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">VIDEO</span>
+            <p class="preview-label">Video</p>
             <h3>视频预览</h3>
           </div>
         </div>
-        <div class="placeholder-box">当前内容没有视频资源</div>
+        <div class="asset-placeholder">当前内容没有可预览的视频资源</div>
       </article>
     `;
 
-  const audioCard = media.audio_url
+  const audioBlock = media.audio_url
     ? `
-      <article class="preview-card small-card">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">AUDIO</span>
+            <p class="preview-label">Audio</p>
             <h3>音频预览</h3>
           </div>
-          <div class="asset-actions">${createDownloadLink("audio", null, "下载音频")}</div>
+          <div class="asset-actions">${createDownloadLink("audio", "下载音频")}</div>
         </div>
-        <audio class="audio-player" controls preload="metadata" src="${buildAssetUrl("audio")}"></audio>
+        <audio class="preview-audio" controls preload="metadata" src="${buildAssetUrl("audio")}"></audio>
       </article>
     `
     : `
-      <article class="preview-card small-card empty-preview">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">AUDIO</span>
+            <p class="preview-label">Audio</p>
             <h3>音频预览</h3>
           </div>
         </div>
-        <div class="placeholder-box">当前内容没有音频资源</div>
+        <div class="asset-placeholder">当前内容没有可预览的音频资源</div>
       </article>
     `;
 
-  const coverCard = media.cover_url
+  const coverBlock = media.cover_url
     ? `
-      <article class="preview-card small-card">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">COVER</span>
+            <p class="preview-label">Cover</p>
             <h3>封面预览</h3>
           </div>
-          <div class="asset-actions">${createDownloadLink("cover", null, "下载封面")}</div>
+          <div class="asset-actions">${createDownloadLink("cover", "下载封面")}</div>
         </div>
-        <img class="image-preview compact-cover" alt="封面预览" src="${buildAssetUrl("cover")}">
+        <img class="preview-cover" alt="封面预览" src="${buildAssetUrl("cover")}">
       </article>
     `
     : `
-      <article class="preview-card small-card empty-preview">
-        <div class="preview-card-head">
+      <article class="asset-card">
+        <div class="asset-head">
           <div>
-            <span class="preview-type">COVER</span>
+            <p class="preview-label">Cover</p>
             <h3>封面预览</h3>
           </div>
         </div>
-        <div class="placeholder-box">当前内容没有封面资源</div>
+        <div class="asset-placeholder">当前内容没有可预览的封面资源</div>
       </article>
     `;
 
-  let gallerySection = "";
+  let galleryBlock = "";
   if (Array.isArray(media.image_list) && media.image_list.length > 0) {
-    const gallery = media.image_list
+    const galleryItems = media.image_list
       .map((_, index) => {
         return `
           <figure class="gallery-item">
             <img alt="图集 ${index + 1}" src="${buildAssetUrl("image", index)}">
             <figcaption>
               <span>图集 ${index + 1}</span>
-              <div class="gallery-actions">
-                <a class="mini-button" href="${buildAssetUrl("image", index, "attachment")}">下载图片</a>
-              </div>
+              ${createDownloadLink("image", "下载图片", index)}
             </figcaption>
           </figure>
         `;
       })
       .join("");
 
-    gallerySection = `
+    galleryBlock = `
       <section class="gallery-section">
-        <div class="preview-card-head">
-          <div>
-            <span class="preview-type">GALLERY</span>
-            <h3>图集预览</h3>
-          </div>
+        <div class="subsection-head">
+          <h3>图集预览</h3>
         </div>
-        <div class="gallery-grid">${gallery}</div>
+        <div class="gallery-grid">${galleryItems}</div>
       </section>
     `;
   }
@@ -319,29 +332,30 @@ function renderPreview(media) {
     elements.previewGrid,
     `
       <div class="preview-layout">
-        ${videoCard}
+        ${videoBlock}
         <div class="preview-stack">
-          ${audioCard}
-          ${coverCard}
+          ${audioBlock}
+          ${coverBlock}
         </div>
       </div>
-      ${gallerySection}
+      ${galleryBlock}
     `,
   );
-  elements.previewGrid.className = "preview-area";
+  setClassName(elements.previewGrid, "preview-root");
 }
 
 function renderTranscript(text, transcription = null) {
-  const blocks = [];
+  const lines = [];
   if (transcription) {
-    blocks.push(`转写服务: ${transcription.base_url || "-"}`);
-    blocks.push(`转写任务: ${transcription.task || "-"}`);
-    blocks.push(`检测语言: ${transcription.detected_language || transcription.language || "-"}`);
-    blocks.push(`分段数量: ${transcription.segment_count ?? "-"}`);
-    blocks.push("");
+    lines.push(`转写服务: ${transcription.base_url || "-"}`);
+    lines.push(`转写任务: ${transcription.task || "-"}`);
+    lines.push(`转写语言: ${transcription.detected_language || transcription.language || "-"}`);
+    lines.push(`分段数量: ${transcription.segment_count ?? "-"}`);
+    lines.push("");
   }
-  blocks.push(text || "暂无转写内容");
-  setText(elements.transcriptOutput, blocks.join("\n"));
+  lines.push(text || "暂无转写内容");
+  state.lastTranscript = text || "";
+  setText(elements.transcriptOutput, lines.join("\n"));
 }
 
 function renderLogs(lines) {
@@ -355,19 +369,19 @@ function renderLogs(lines) {
 
 async function requestJson(url, options) {
   const response = await fetch(url, options);
-  const text = await response.text();
-  const payload = text ? safeJsonParse(text) : {};
-
+  const raw = await response.text();
+  const payload = raw ? safeJsonParse(raw) : {};
   if (!response.ok) {
-    throw new Error(payload.detail || payload.message || text || `请求失败: HTTP ${response.status}`);
+    throw new Error(payload.detail || payload.message || raw || `请求失败: HTTP ${response.status}`);
   }
   return payload;
 }
 
-function getCommonPayload() {
+function getPayload() {
   saveConfig();
   return {
     text: getTrimmedValue(elements.text),
+    save_transcript: getChecked(elements.saveTranscript, DEFAULTS.saveTranscript),
     transcription_base_url: getTrimmedValue(elements.transcriptionBaseUrl, DEFAULTS.transcriptionBaseUrl),
     transcription_task: getValue(elements.transcriptionTask, DEFAULTS.transcriptionTask),
     transcription_language: getTrimmedValue(elements.transcriptionLanguage, DEFAULTS.transcriptionLanguage),
@@ -381,8 +395,17 @@ function getCommonPayload() {
       DEFAULTS.transcriptionWordTimestamps,
     ),
     transcription_vad_filter: getChecked(elements.transcriptionVadFilter, DEFAULTS.transcriptionVadFilter),
-    save_transcript: getChecked(elements.saveTranscript, DEFAULTS.saveTranscript),
+    save_video: false,
+    save_cover: false,
+    save_images: false,
   };
+}
+
+function resetResultViews() {
+  renderMediaInfo(null);
+  renderPreview(null);
+  renderTranscript("");
+  renderLogs([]);
 }
 
 function stopPolling() {
@@ -390,13 +413,113 @@ function stopPolling() {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+  state.pollInFlight = false;
+}
+
+async function fetchParsedMedia(text) {
+  const response = await requestJson("/api/parse", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  return response.data;
+}
+
+async function ensureParsedMedia(text) {
+  if (state.lastParse && state.lastText === text) {
+    return state.lastParse;
+  }
+  const media = await fetchParsedMedia(text);
+  state.lastText = text;
+  state.lastParse = media;
+  renderMediaInfo(media);
+  renderPreview(media);
+  return media;
+}
+
+function consumeJobResult(job) {
+  if (!job || !job.result) {
+    return;
+  }
+  const result = job.result;
+  if (result.media) {
+    state.lastParse = result.media;
+    renderMediaInfo(result.media, result.transcription || null);
+    renderPreview(result.media);
+  }
+  renderTranscript(result.transcript || "", result.transcription || null);
+}
+
+function applyJobState(job) {
+  if (!job) {
+    return;
+  }
+
+  renderLogs(job.logs || []);
+
+  if (job.status === "queued") {
+    setJobBadge("排队中", "任务已创建，等待后台执行");
+    setStatus("loading", "任务排队中", "后台已接收转写任务，正在等待调度。");
+    return;
+  }
+
+  if (job.status === "running") {
+    setJobBadge("执行中", "日志会自动刷新，可继续轮询查看结果");
+    setStatus("loading", "正在转写", "后台正在下载媒体并调用 ASR 服务。");
+    return;
+  }
+
+  if (job.status === "succeeded") {
+    stopPolling();
+    consumeJobResult(job);
+    setJobBadge("已完成", "转写任务已完成，结果已同步到页面");
+    setStatus("success", "转写完成", "媒体预览和转写文案已经更新。");
+    return;
+  }
+
+  if (job.status === "failed") {
+    stopPolling();
+    setJobBadge("失败", "任务执行失败，请查看日志定位问题");
+    setStatus("error", "转写失败", job.error || "后台任务执行失败。");
+    if (job.error) {
+      appendLocalLog(`错误: ${job.error}`);
+    }
+  }
+}
+
+async function pollJobOnce() {
+  if (!state.currentJobId || state.pollInFlight) {
+    return;
+  }
+
+  state.pollInFlight = true;
+  try {
+    const response = await requestJson(`/api/jobs/${state.currentJobId}`, { method: "GET" });
+    applyJobState(response.data);
+  } catch (error) {
+    stopPolling();
+    appendLocalLog(`轮询失败: ${error.message}`);
+    setJobBadge("异常", "轮询接口失败");
+    setStatus("error", "轮询失败", error.message);
+  } finally {
+    state.pollInFlight = false;
+  }
+}
+
+function startPolling(jobId) {
+  stopPolling();
+  state.currentJobId = jobId;
+  state.pollTimer = window.setInterval(() => {
+    void pollJobOnce();
+  }, POLL_INTERVAL_MS);
+  void pollJobOnce();
 }
 
 async function checkHealth() {
   try {
     await requestJson("/api/health", { method: "GET" });
     setText(elements.healthStatus, "在线");
-    setText(elements.healthHint, "HTTP API 可用，已就绪。");
+    setText(elements.healthHint, "HTTP API 正常，可执行解析与转写");
   } catch (error) {
     setText(elements.healthStatus, "异常");
     setText(elements.healthHint, error.message);
@@ -404,121 +527,97 @@ async function checkHealth() {
 }
 
 async function parseMedia() {
-  stopPolling();
-
-  const payload = getCommonPayload();
+  const payload = getPayload();
   if (!payload.text) {
     setStatus("error", "缺少输入", "请先粘贴分享文案或媒体链接。");
     return;
   }
 
-  setStatus("loading", "正在解析", "正在请求解析接口并生成媒体预览。");
+  stopPolling();
+  state.currentJobId = null;
+  toggleDisabled(true);
   setJobBadge("空闲", "当前没有后台转写任务");
+  setStatus("loading", "正在解析", "正在请求解析接口并刷新媒体预览。");
 
   try {
-    const result = await requestJson("/api/parse", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: payload.text }),
-    });
-
-    state.lastParse = result.data;
+    const media = await fetchParsedMedia(payload.text);
     state.lastText = payload.text;
-    state.lastTranscript = "";
-    state.currentJobId = null;
-    renderMediaInfo(result.data);
-    renderPreview(result.data);
+    state.lastParse = media;
+    renderMediaInfo(media);
+    renderPreview(media);
     renderTranscript("");
     renderLogs([]);
-    setStatus("success", "解析完成", "媒体信息已更新，可以直接预览或发起异步转写任务。");
+    setStatus("success", "解析完成", "媒体信息与资源预览已更新。");
   } catch (error) {
+    resetResultViews();
     setStatus("error", "解析失败", error.message);
+  } finally {
+    toggleDisabled(false);
   }
-}
-
-function updateFromJob(job) {
-  state.currentJobId = job.job_id;
-  renderLogs(job.logs);
-
-  const lastLog = Array.isArray(job.logs) && job.logs.length > 0 ? job.logs[job.logs.length - 1] : "暂无日志";
-
-  if (job.status === "queued") {
-    setJobBadge("排队中", `任务 ID: ${job.job_id}`);
-    setStatus("loading", "任务已提交", lastLog);
-    return;
-  }
-
-  if (job.status === "running") {
-    setJobBadge("执行中", `任务 ID: ${job.job_id}`);
-    setStatus("loading", "后台转写中", lastLog);
-    return;
-  }
-
-  if (job.status === "failed") {
-    stopPolling();
-    setJobBadge("失败", `任务 ID: ${job.job_id}`);
-    setStatus("error", "转写失败", job.error || lastLog);
-    return;
-  }
-
-  if (job.status === "succeeded" && job.result) {
-    stopPolling();
-    setJobBadge("完成", `任务 ID: ${job.job_id}`);
-    state.lastParse = job.result.media;
-    state.lastTranscript = job.result.transcript || "";
-    renderMediaInfo(job.result.media, job.result.transcription);
-    renderPreview(job.result.media);
-    renderTranscript(state.lastTranscript, job.result.transcription);
-    setStatus("success", "转写完成", lastLog);
-  }
-}
-
-async function pollJob(jobId) {
-  const result = await requestJson(`/api/jobs/${jobId}`, { method: "GET" });
-  updateFromJob(result.data);
-}
-
-function startPolling(jobId) {
-  stopPolling();
-  pollJob(jobId).catch((error) => {
-    stopPolling();
-    setStatus("error", "轮询失败", error.message);
-  });
-
-  state.pollTimer = window.setInterval(async () => {
-    try {
-      await pollJob(jobId);
-    } catch (error) {
-      stopPolling();
-      setStatus("error", "轮询失败", error.message);
-    }
-  }, POLL_INTERVAL_MS);
 }
 
 async function extractTranscript() {
-  const payload = getCommonPayload();
+  const payload = getPayload();
   if (!payload.text) {
     setStatus("error", "缺少输入", "请先粘贴分享文案或媒体链接。");
     return;
   }
 
-  setStatus("loading", "正在创建任务", "转写任务会在后台执行，页面会自动轮询结果。");
+  toggleDisabled(true);
+  setStatus("loading", "准备提交", "正在校验媒体信息并创建异步转写任务。");
 
   try {
-    const result = await requestJson("/api/extract", {
+    await ensureParsedMedia(payload.text);
+    renderTranscript("正在等待异步转写结果...");
+
+    const response = await requestJson("/api/extract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    const job = result.data;
-    state.lastText = payload.text;
-    renderLogs(job.logs);
+    const job = response.data;
+    state.currentJobId = job.job_id;
+    renderLogs(job.logs || []);
     setJobBadge("排队中", `任务 ID: ${job.job_id}`);
-    setStatus("loading", "任务已提交", "后台任务已创建，正在等待执行。");
+    setStatus("loading", "任务已创建", "后台已开始执行转写，请等待轮询结果。");
     startPolling(job.job_id);
   } catch (error) {
+    appendLocalLog(`创建任务失败: ${error.message}`);
     setStatus("error", "任务创建失败", error.message);
+  } finally {
+    toggleDisabled(false);
+  }
+}
+
+function clearResults() {
+  stopPolling();
+  state.currentJobId = null;
+  state.currentJobLogs = [];
+  state.lastParse = null;
+  state.lastText = "";
+  state.lastTranscript = "";
+  setValue(elements.text, "");
+  if (hasElement(elements.text)) {
+    elements.text.focus();
+  }
+  resetResultViews();
+  setStatus("idle", "等待操作", "先解析媒体信息，再创建异步转写任务。");
+  setJobBadge("空闲", "尚未创建转写任务");
+}
+
+async function copyText(text, successMessage) {
+  const content = String(text || "").trim();
+  if (!content) {
+    setStatus("error", "复制失败", "当前没有可复制的内容。");
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(content);
+    setStatus("success", "复制成功", successMessage);
+  } catch (error) {
+    setStatus("error", "复制失败", error.message || "浏览器拒绝访问剪贴板。");
   }
 }
 
@@ -526,56 +625,38 @@ function fillDemo() {
   setValue(elements.text, "https://www.douyin.com/video/7396822576074460467");
 }
 
-function clearResults() {
-  stopPolling();
-  state.lastParse = null;
-  state.lastTranscript = "";
-  state.lastText = "";
-  state.currentJobId = null;
-  state.currentJobLogs = [];
-  renderMediaInfo(null);
-  renderPreview(null);
-  renderTranscript("");
-  renderLogs([]);
-  setJobBadge("空闲", "尚未创建转写任务");
-  setStatus("idle", "等待操作", "先解析媒体信息，再发起异步转写任务。");
-}
-
-async function copyTranscript() {
-  if (!state.lastTranscript) {
-    setStatus("error", "没有可复制内容", "请先执行一次转写任务。");
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(state.lastTranscript);
-    setStatus("success", "复制成功", "文案已经复制到剪贴板。");
-  } catch (error) {
-    setStatus("error", "复制失败", error.message || "浏览器拒绝了剪贴板操作。");
-  }
-}
-
-async function copyLog() {
-  if (!state.currentJobLogs.length) {
-    setStatus("error", "没有可复制日志", "当前还没有任务日志。");
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(state.currentJobLogs.join("\n"));
-    setStatus("success", "复制成功", "任务日志已经复制到剪贴板。");
-  } catch (error) {
-    setStatus("error", "复制失败", error.message || "浏览器拒绝了剪贴板操作。");
-  }
-}
-
 function bindEvents() {
-  elements.parseAction?.addEventListener("click", parseMedia);
-  elements.extractAction?.addEventListener("click", extractTranscript);
-  elements.fillDemo?.addEventListener("click", fillDemo);
-  elements.clearResults?.addEventListener("click", clearResults);
-  elements.copyTranscript?.addEventListener("click", copyTranscript);
-  elements.copyLog?.addEventListener("click", copyLog);
+  if (hasElement(elements.parseAction)) {
+    elements.parseAction.addEventListener("click", () => {
+      void parseMedia();
+    });
+  }
+
+  if (hasElement(elements.extractAction)) {
+    elements.extractAction.addEventListener("click", () => {
+      void extractTranscript();
+    });
+  }
+
+  if (hasElement(elements.clearResults)) {
+    elements.clearResults.addEventListener("click", clearResults);
+  }
+
+  if (hasElement(elements.fillDemo)) {
+    elements.fillDemo.addEventListener("click", fillDemo);
+  }
+
+  if (hasElement(elements.copyLog)) {
+    elements.copyLog.addEventListener("click", () => {
+      void copyText(state.currentJobLogs.join("\n"), "任务日志已复制到剪贴板。");
+    });
+  }
+
+  if (hasElement(elements.copyTranscript)) {
+    elements.copyTranscript.addEventListener("click", () => {
+      void copyText(state.lastTranscript, "转写文案已复制到剪贴板。");
+    });
+  }
 
   [
     elements.transcriptionBaseUrl,
@@ -593,7 +674,15 @@ function bindEvents() {
   });
 }
 
-restoreConfig();
-bindEvents();
-checkHealth();
-clearResults();
+function init() {
+  restoreConfig();
+  clearResults();
+  bindEvents();
+  void checkHealth();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
