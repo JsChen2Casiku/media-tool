@@ -16,7 +16,11 @@ from media_tool_core.configs.general_constants import DOMAIN_TO_PLATFORM, PROJEC
 from media_tool_core.configs.logging_config import get_logger
 from media_tool_core.downloader_factory import DownloaderFactory
 from media_tool_core.schemas import DownloadRequest, ExtractRequest
-from media_tool_core.services.transcription_service import TranscriptionConfig, create_transcriber
+from media_tool_core.services.transcription_service import (
+    TranscriptionConfig,
+    TranscriptionResult,
+    create_transcriber,
+)
 from media_tool_core.utils.web_fetcher import UrlParser, WebFetcher
 
 logger = get_logger(__name__)
@@ -113,54 +117,58 @@ def download_media(payload: DownloadRequest) -> dict:
 
 def extract_transcript(payload: ExtractRequest) -> dict:
     parsed, downloader = _resolve_media_with_downloader(payload.text)
-    if not parsed.video_url:
-        raise ValueError("当前链接没有可转写的视频地址，通常说明这是一条纯图集内容。")
+    source_url = parsed.audio_url or parsed.video_url
+    if not source_url:
+        raise ValueError("当前链接没有可转写的音频或视频地址，通常说明这是图集内容。")
 
     config = TranscriptionConfig.from_values(
-        model=payload.model,
-        opentypeless_credential_path=payload.opentypeless_credential_path,
-        opentypeless_device_id=payload.opentypeless_device_id,
-        opentypeless_token=payload.opentypeless_token,
-        opentypeless_default_backend=payload.opentypeless_default_backend,
-        opentypeless_official_mode=payload.opentypeless_official_mode,
-        opentypeless_official_app_key=payload.opentypeless_official_app_key,
-        opentypeless_official_access_key=payload.opentypeless_official_access_key,
-        opentypeless_official_uid=payload.opentypeless_official_uid,
+        transcription_base_url=payload.transcription_base_url,
+        transcription_task=payload.transcription_task,
+        transcription_language=payload.transcription_language,
+        transcription_timeout=payload.transcription_timeout,
+        transcription_encode=payload.transcription_encode,
+        transcription_word_timestamps=payload.transcription_word_timestamps,
+        transcription_vad_filter=payload.transcription_vad_filter,
     )
-    _ensure_ffmpeg_available()
     transcriber = create_transcriber(config)
 
     export_dir = _prepare_export_dir(payload.output_dir, parsed.video_id, parsed.title)
     temp_dir = TEMP_ROOT / str(uuid.uuid4())
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    video_path = temp_dir / "source.mp4"
-    audio_path = temp_dir / "source.wav"
+    source_extension = _guess_extension(source_url, ".mp3" if parsed.audio_url else ".mp4")
+    source_path = temp_dir / f"source{source_extension}"
 
     try:
         _download_to_path(
-            parsed.video_url,
-            video_path,
+            source_url,
+            source_path,
             headers=getattr(downloader, "headers", None),
             referer=parsed.real_url,
         )
-        _extract_audio(video_path, audio_path)
-        transcript_text = transcriber.transcribe(audio_path)
+
+        transcription_result = transcriber.transcribe(source_path)
+        transcript_text = transcription_result.text.strip()
 
         saved_files = {"transcript": None, "video": None, "cover": None, "images": []}
 
         if payload.save_transcript:
             transcript_path = export_dir / "transcript.md"
             transcript_path.write_text(
-                _build_transcript_markdown(parsed, transcript_text, config),
+                _build_transcript_markdown(parsed, transcription_result, config),
                 encoding="utf-8",
             )
             saved_files["transcript"] = str(transcript_path)
 
-        if payload.save_video:
-            saved_video = export_dir / f"{_safe_name(parsed.title or parsed.video_id or 'video')}.mp4"
-            shutil.copy2(video_path, saved_video)
-            saved_files["video"] = str(saved_video)
+        if payload.save_video and parsed.video_url:
+            saved_files["video"] = _download_url(
+                parsed.video_url,
+                export_dir,
+                prefix="video",
+                fallback_extension=".mp4",
+                headers=getattr(downloader, "headers", None),
+                referer=parsed.real_url,
+            )
 
         if payload.save_cover and parsed.cover_url:
             saved_files["cover"] = _download_url(
@@ -190,7 +198,7 @@ def extract_transcript(payload: ExtractRequest) -> dict:
             "transcript": transcript_text,
             "output_dir": str(export_dir),
             "saved_files": saved_files,
-            "transcription": _build_transcription_metadata(config),
+            "transcription": _build_transcription_metadata(config, transcription_result),
         }
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -353,16 +361,30 @@ def _safe_name(value: str) -> str:
     return cleaned[:80] or "media"
 
 
-def _build_headers(custom_headers: Optional[dict] = None, referer: Optional[str] = None) -> dict:
+def _build_headers(
+    custom_headers: Optional[dict] = None,
+    referer: Optional[str] = None,
+    request_url: Optional[str] = None,
+) -> dict:
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
         "Accept": "*/*",
     }
     if custom_headers:
         headers.update(custom_headers)
     if referer and "Referer" not in headers:
+        headers["Referer"] = referer
+    if referer and "Origin" not in headers:
         parsed = urlparse(referer)
-        headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+        if parsed.scheme and parsed.netloc:
+            headers["Origin"] = f"{parsed.scheme}://{parsed.netloc}"
+    if _is_douyin_cdn_request(request_url, referer):
+        headers.setdefault("Range", "bytes=0-")
+        headers.setdefault("Sec-Fetch-Site", "cross-site")
+        headers.setdefault("Sec-Fetch-Mode", "no-cors")
+        headers.setdefault("Sec-Fetch-Dest", "video")
+        headers.setdefault("Accept-Encoding", "identity;q=1, *;q=0")
     return headers
 
 
@@ -381,18 +403,38 @@ def _download_url(
 
 
 def _download_to_path(url: str, target_path: Path, headers: Optional[dict] = None, referer: Optional[str] = None) -> None:
+    request_headers = _build_headers(headers, referer, url)
     response = requests.get(
         url,
-        headers=_build_headers(headers, referer),
+        headers=request_headers,
         stream=True,
         allow_redirects=True,
         timeout=REQUEST_TIMEOUT,
     )
+    if response.status_code == 403 and _is_douyin_cdn_request(url, referer):
+        response.close()
+        retry_headers = dict(request_headers)
+        retry_headers["Range"] = "bytes=0-"
+        retry_headers["Accept"] = "video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8"
+        response = requests.get(
+            url,
+            headers=retry_headers,
+            stream=True,
+            allow_redirects=True,
+            timeout=REQUEST_TIMEOUT,
+        )
     response.raise_for_status()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
     with target_path.open("wb") as file_obj:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 file_obj.write(chunk)
+
+
+def _is_douyin_cdn_request(request_url: Optional[str], referer: Optional[str]) -> bool:
+    haystacks = [request_url or "", referer or ""]
+    keywords = ("douyinvod.com", "douyin.com", "iesdouyin.com", "byteimg.com")
+    return any(keyword in text for text in haystacks for keyword in keywords)
 
 
 def _guess_extension(url: str, fallback_extension: str) -> str:
@@ -412,43 +454,23 @@ def _build_content_disposition(filename: str, disposition: str) -> str:
     return f"{resolved_disposition}; filename*=UTF-8''{quote(filename)}"
 
 
-def _ensure_ffmpeg_available() -> None:
-    if shutil.which("ffmpeg"):
-        return
-    raise ValueError("未检测到 ffmpeg 可执行文件，请先安装 ffmpeg 并加入 PATH。")
-
-
-def _extract_audio(video_path: Path, audio_path: Path) -> None:
-    import ffmpeg
-
-    (
-        ffmpeg.input(str(video_path))
-        .output(str(audio_path), acodec="pcm_s16le", ar=16000, ac=1)
-        .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
-    )
-
-
-def _build_transcription_metadata(config: TranscriptionConfig) -> dict:
-    payload = {
-        "backend": config.resolved_backend.value,
-        "model": config.model,
-        "cleanup": "临时视频和音频文件会在转写完成后自动删除",
+def _build_transcription_metadata(config: TranscriptionConfig, result: TranscriptionResult) -> dict:
+    return {
+        "provider": "whisper-asr-webservice",
+        "base_url": config.base_url,
+        "endpoint": config.endpoint,
+        "task": config.task,
+        "language": config.language,
+        "detected_language": result.language,
+        "encode": config.encode,
+        "word_timestamps": config.word_timestamps,
+        "vad_filter": config.vad_filter,
+        "cleanup": "转写完成后自动删除临时下载文件",
+        "segment_count": len(result.segments),
     }
-    payload["mode"] = (
-        config.resolved_official_mode.value
-        if config.resolved_backend.value == "official"
-        else "ime"
-    )
-    if config.credential_path:
-        payload["credential_path"] = config.credential_path
-    if config.device_id:
-        payload["device_id"] = config.device_id
-    if config.resolved_backend.value == "official":
-        payload["official_uid"] = config.official_uid
-    return payload
 
 
-def _build_transcript_markdown(parsed: ParsedMedia, transcript_text: str, config: TranscriptionConfig) -> str:
+def _build_transcript_markdown(parsed: ParsedMedia, result: TranscriptionResult, config: TranscriptionConfig) -> str:
     lines = [
         f"# {parsed.title or '未命名视频'}",
         "",
@@ -458,12 +480,14 @@ def _build_transcript_markdown(parsed: ParsedMedia, transcript_text: str, config
         f"| 视频 ID | `{parsed.video_id or ''}` |",
         f"| 原始链接 | {parsed.source_url} |",
         f"| 解析时间 | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} |",
-        f"| 转写后端 | `{config.resolved_backend.value}` |",
-        f"| 转写模型 | `{config.model}` |",
+        f"| 转写服务 | `{config.base_url}` |",
+        f"| 转写任务 | `{config.task}` |",
+        f"| 指定语言 | `{config.language or 'auto'}` |",
+        f"| 检测语言 | `{result.language or 'unknown'}` |",
         "",
         "## 文案",
         "",
-        transcript_text.strip(),
+        result.text.strip(),
         "",
     ]
     return "\n".join(lines)

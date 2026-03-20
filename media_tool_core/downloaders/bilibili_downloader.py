@@ -8,6 +8,7 @@ import concurrent.futures
 from media_tool_core.downloaders.base_downloader import BaseDownloader
 from media_tool_core.configs.general_constants import USER_AGENT_PC, SAVE_VIDEO_PATH, DOMAIN
 from media_tool_core.configs.logging_config import get_logger
+from media_tool_core.utils.ffmpeg_utils import require_ffmpeg_binary
 logger = get_logger(__name__)
 
 
@@ -154,8 +155,9 @@ class BilibiliDownloader(BaseDownloader):
         output_filename = f"{uuid.uuid4()}_audio.m4a"
         output_path = os.path.join(SAVE_VIDEO_PATH, output_filename)
 
+        ffmpeg_binary = require_ffmpeg_binary()
         command = [
-            "ffmpeg",
+            ffmpeg_binary,
             "-y",
             "-i", audio_m4s_path,
             "-c:a", "copy",
@@ -262,8 +264,9 @@ class BilibiliDownloader(BaseDownloader):
         output_path = os.path.join(SAVE_VIDEO_PATH, output_filename)
 
         # 浣跨敤 ffmpeg 鎷兼帴
+        ffmpeg_binary = require_ffmpeg_binary()
         command = [
-            "ffmpeg",
+            ffmpeg_binary,
             "-y",  # overwrite output file if it exists
             "-i", video_m4s_path,
             "-i", audio_m4s_path,

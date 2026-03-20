@@ -56,8 +56,8 @@ def extract_route(payload: ExtractRequest):
 def asset_route(
     request: Request,
     text: str = Query(..., description="原始分享文案或链接"),
-    kind: str = Query(..., description="资源类型：video、audio、cover、image"),
-    index: int | None = Query(default=None, description="图集索引，仅 image 类型使用"),
+    kind: str = Query(..., description="资源类型，支持 video、audio、cover、image"),
+    index: int | None = Query(default=None, description="图集索引，仅 kind=image 时使用"),
     disposition: str = Query(default="inline", description="inline 或 attachment"),
 ):
     try:

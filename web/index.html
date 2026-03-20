@@ -6,23 +6,24 @@
   <title>media-tool</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/web/styles.css">
 </head>
 <body>
   <div class="page-shell">
     <header class="hero-panel">
       <div class="hero-copy">
-        <p class="eyebrow">MEDIA INTELLIGENCE CONSOLE</p>
-        <h1>解析、预览、转写，一套界面完成。</h1>
+        <span class="eyebrow">MEDIA TOOL</span>
+        <h1>短视频解析、预览、下载与免费转写</h1>
         <p class="hero-text">
-          面向短视频内容处理的统一控制台。先解析媒体结构，再直接预览视频、音频、封面和图集。
-          转写层已经统一到 OpenTypeless 模型链，只保留 IME 与官方文件识别两种模式。
+          统一接入短视频解析能力和自托管 Whisper ASR 转写服务。
+          解析后可直接预览视频、音频、封面和图集，并按资源单独下载。
         </p>
         <div class="hero-tags">
-          <span>OpenTypeless</span>
-          <span>同源媒体预览</span>
-          <span>单项下载</span>
+          <span>解析</span>
+          <span>预览</span>
+          <span>按需下载</span>
+          <span>Whisper ASR</span>
         </div>
       </div>
 
@@ -30,12 +31,12 @@
         <article class="metric-card">
           <span class="metric-label">服务状态</span>
           <strong id="health-status">检测中</strong>
-          <small id="health-hint">正在检查接口可用性</small>
+          <small id="health-hint">正在检查接口健康状态</small>
         </article>
         <article class="metric-card">
           <span class="metric-label">工作流</span>
-          <strong>解析 -> 预览 -> 提取</strong>
-          <small>转写临时文件自动清理，不保留中间产物</small>
+          <strong>解析 → 预览 → 转写</strong>
+          <small>转写使用临时下载文件，任务完成后自动清理，不保留中间产物。</small>
         </article>
       </div>
     </header>
@@ -51,81 +52,49 @@
         </div>
 
         <label class="field-label" for="media-text">分享文案或链接</label>
-        <textarea
-          id="media-text"
-          class="text-input textarea-input"
-          placeholder="粘贴短视频分享文案、短链或原始链接"
-        ></textarea>
+        <textarea id="media-text" class="text-input textarea-input" placeholder="粘贴抖音、快手、小红书、B 站等平台的分享文案或原始链接"></textarea>
 
         <div class="config-grid">
+          <div class="full-span">
+            <label class="field-label" for="transcription-base-url">Whisper ASR 服务地址</label>
+            <input id="transcription-base-url" class="text-input" type="text" placeholder="http://127.0.0.1:9000">
+          </div>
+
           <div>
-            <label class="field-label" for="api-model">OpenTypeless 模型</label>
-            <select id="api-model" class="text-input">
-              <option value="doubao-asr">doubao-asr</option>
-              <option value="doubao-asr-official">doubao-asr-official</option>
-              <option value="doubao-asr-official-standard">doubao-asr-official-standard</option>
-              <option value="doubao-asr-official-flash">doubao-asr-official-flash</option>
+            <label class="field-label" for="transcription-task">转写任务</label>
+            <select id="transcription-task" class="text-input">
+              <option value="transcribe">transcribe</option>
+              <option value="translate">translate</option>
             </select>
           </div>
 
-          <div id="official-mode-wrap">
-            <label class="field-label" for="official-mode">官方默认模式</label>
-            <select id="official-mode" class="text-input">
-              <option value="flash">flash</option>
-              <option value="standard">standard</option>
-            </select>
+          <div>
+            <label class="field-label" for="transcription-language">语言代码</label>
+            <input id="transcription-language" class="text-input" type="text" placeholder="zh">
           </div>
 
-          <div class="full-span" id="credential-path-wrap">
-            <label class="field-label" for="credential-path">IME 凭据文件</label>
-            <input
-              id="credential-path"
-              class="text-input"
-              type="text"
-              placeholder="/app/runtime/storage/opentypeless/credentials.json"
-            >
-          </div>
-
-          <div id="device-id-wrap">
-            <label class="field-label" for="device-id">IME 设备 ID</label>
-            <input id="device-id" class="text-input" type="text" placeholder="可选">
-          </div>
-
-          <div id="token-wrap">
-            <label class="field-label" for="token">IME Token</label>
-            <input id="token" class="text-input" type="password" placeholder="可选">
-          </div>
-
-          <div id="official-app-key-wrap">
-            <label class="field-label" for="official-app-key">官方 App Key</label>
-            <input
-              id="official-app-key"
-              class="text-input"
-              type="password"
-              placeholder="官方文件识别 App Key"
-            >
-          </div>
-
-          <div id="official-access-key-wrap">
-            <label class="field-label" for="official-access-key">官方 Access Key</label>
-            <input
-              id="official-access-key"
-              class="text-input"
-              type="password"
-              placeholder="官方文件识别 Access Key"
-            >
-          </div>
-
-          <div class="full-span" id="official-uid-wrap">
-            <label class="field-label" for="official-uid">官方 UID</label>
-            <input id="official-uid" class="text-input" type="text" placeholder="opentypeless">
+          <div>
+            <label class="field-label" for="transcription-timeout">转写超时（秒）</label>
+            <input id="transcription-timeout" class="text-input" type="number" min="30" step="10" placeholder="300">
           </div>
         </div>
 
         <div class="toggle-grid">
           <label class="toggle-card">
             <input type="checkbox" id="save-transcript" checked>
-            <span>保存 transcript</span>
+            <span>保存 transcript.md</span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" id="transcription-encode" checked>
+            <span>转写前重编码</span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" id="transcription-word-timestamps">
+            <span>逐词时间戳</span>
+          </label>
+          <label class="toggle-card">
+            <input type="checkbox" id="transcription-vad-filter">
+            <span>静音过滤</span>
           </label>
         </div>
 
@@ -151,9 +120,10 @@
         <div class="tips-card">
           <h3>说明</h3>
           <ul>
-            <li>当前转写能力统一为 OpenTypeless 模型链，不再提供旧的 openai、funasr、独立豆包配置。</li>
-            <li>媒体预览与下载均通过同源接口代理，避免浏览器跨域问题。</li>
-            <li>转写时下载的视频和提取出的中间音频会在服务端自动删除。</li>
+            <li>转写链路已统一为免费自托管 Whisper ASR 服务。</li>
+            <li>页面不再显示作者信息，只保留媒体本身的解析结果。</li>
+            <li>下载入口位于每个预览卡片内部，按需下载视频、音频、封面或图集。</li>
+            <li>转写时优先使用解析出的音频地址，完成后自动删除临时文件。</li>
           </ul>
         </div>
       </aside>
@@ -195,13 +165,6 @@
       </section>
     </main>
   </div>
-
-  <template id="summary-item-template">
-    <article class="summary-item">
-      <span class="summary-key"></span>
-      <strong class="summary-value"></strong>
-    </article>
-  </template>
 
   <script src="/web/app.js"></script>
 </body>

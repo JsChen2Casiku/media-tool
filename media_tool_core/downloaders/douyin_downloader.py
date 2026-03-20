@@ -89,7 +89,10 @@ class DouyinDownloader(BaseDownloader):
             new_headers = copy.deepcopy(self.headers)
             new_headers['Referer'] = referer_url
             new_headers['Cookie'] = f"ttwid={ttwid}"
-            
+            self.headers['Referer'] = referer_url
+            self.headers['Cookie'] = f"ttwid={ttwid}"
+            self.headers['Origin'] = "https://www.douyin.com"
+             
             abogus = self.common_utils.get_abogus(play_url, self.common_utils.user_agent)
             url = f"{play_url}&a_bogus={abogus}"
             

@@ -18,16 +18,8 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
-        pkg-config \
-        libffi-dev \
-        libxml2-dev \
-        libxslt1-dev \
-        zlib1g-dev \
         ffmpeg \
         nodejs \
-        libopus0 \
     && if [ ! -x /usr/bin/node ] && [ -x /usr/bin/nodejs ]; then ln -s /usr/bin/nodejs /usr/bin/node; fi \
     && rm -rf /var/lib/apt/lists/*
 

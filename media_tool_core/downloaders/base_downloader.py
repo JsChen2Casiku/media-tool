@@ -53,7 +53,7 @@ class BaseDownloader:
 
     @staticmethod
     def parse_html_data(html_content, pattern):
-        page_obj = BeautifulSoup(html_content, "lxml")
+        page_obj = BeautifulSoup(html_content, "html.parser")
         script_tags = page_obj.find_all("script")
         for script in script_tags:
             if script.string:

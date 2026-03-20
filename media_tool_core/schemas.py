@@ -18,45 +18,33 @@ class DownloadRequest(ParseRequest):
 
 
 class TranscriptionConfigMixin(BaseModel):
-    model: Optional[str] = Field(
+    transcription_base_url: Optional[str] = Field(
         default=None,
-        description=(
-            "OpenTypeless 模型 ID，支持 "
-            "doubao-asr、doubao-asr-official、"
-            "doubao-asr-official-standard、doubao-asr-official-flash"
-        ),
+        description="Whisper ASR 服务基地址，例如 http://127.0.0.1:9000",
     )
-    opentypeless_credential_path: Optional[str] = Field(
+    transcription_task: Optional[str] = Field(
         default=None,
-        description="IME 模式凭据缓存文件路径",
+        description="转写任务，支持 transcribe 或 translate",
     )
-    opentypeless_device_id: Optional[str] = Field(
+    transcription_language: Optional[str] = Field(
         default=None,
-        description="IME 模式设备 ID，可选",
+        description="语言代码，例如 zh、en；留空时由 ASR 服务自动检测",
     )
-    opentypeless_token: Optional[str] = Field(
+    transcription_timeout: Optional[int] = Field(
         default=None,
-        description="IME 模式 Token，可选",
+        description="转写请求超时时间，单位秒",
     )
-    opentypeless_default_backend: Optional[str] = Field(
+    transcription_encode: Optional[bool] = Field(
         default=None,
-        description="默认后端，支持 ime 或 official",
+        description="是否让 Whisper 服务先重编码音频",
     )
-    opentypeless_official_mode: Optional[str] = Field(
+    transcription_word_timestamps: Optional[bool] = Field(
         default=None,
-        description="官方模式，支持 standard 或 flash",
+        description="是否返回逐词时间戳",
     )
-    opentypeless_official_app_key: Optional[str] = Field(
+    transcription_vad_filter: Optional[bool] = Field(
         default=None,
-        description="官方文件识别 App Key",
-    )
-    opentypeless_official_access_key: Optional[str] = Field(
-        default=None,
-        description="官方文件识别 Access Key",
-    )
-    opentypeless_official_uid: Optional[str] = Field(
-        default=None,
-        description="官方文件识别请求 UID，可选",
+        description="是否启用 VAD 静音过滤",
     )
 
 

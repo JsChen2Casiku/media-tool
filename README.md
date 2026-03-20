@@ -1,32 +1,31 @@
 # media-tool
 
-`media-tool` 是一个面向短视频场景的统一工具，支持链接解析、媒体预览、按需下载、文案提取，并提供 Web UI、HTTP API、CLI、MCP Server 四种入口。
-
-当前项目的转写能力已经统一重构为 `OpenTypeless` 模型链，不再保留旧的 `openai`、`funasr`、独立旧豆包参数配置。
-
-支持的转写模型：
-
-- `doubao-asr`
-- `doubao-asr-official`
-- `doubao-asr-official-standard`
-- `doubao-asr-official-flash`
-
-## 功能概览
+`media-tool` 是一个面向短视频场景的统一工具，支持：
 
 - 多平台短视频链接解析
 - 视频、音频、封面、图集预览
-- 视频、音频、封面、图集单项下载
-- 使用 OpenTypeless 进行文案提取
+- 按资源单独下载
+- 基于免费自托管 Whisper ASR 的文案提取
+- Web UI、HTTP API、CLI、MCP Server
 - Docker Compose 部署
-- 浏览器可视化操作界面
+
+当前项目的转写能力已经统一切换到免费开源、自托管的 Whisper ASR Web Service。
+
+## 功能概览
+
+- 解析短视频分享文案或链接
+- 返回视频地址、音频地址、封面地址、图集地址
+- 浏览器内直接预览视频、音频、封面和图集
+- 每个资源单独下载，不再保留一个总下载按钮
+- 转写时优先使用 `audio_url`，没有音频地址时回退到 `video_url`
+- 转写结束后自动删除临时下载文件
 
 ## 项目结构
 
 ```text
 media-tool/
 |-- media_tool_core/          # 核心逻辑
-|-- doubaoime_asr/            # OpenTypeless IME 模式依赖的本地最小实现
-|-- web/                      # Web UI 静态页面
+|-- web/                      # Web UI
 |-- app.py                    # FastAPI 入口
 |-- cli.py                    # CLI 入口
 |-- mcp_server.py             # MCP Server 入口
@@ -36,6 +35,17 @@ media-tool/
 |-- requirements.txt
 `-- README.md
 ```
+
+## 免费方案说明
+
+项目当前推荐的转写方案是自托管 `whisper-asr-webservice`。
+
+- 开源仓库：`ahmetoner/whisper-asr-webservice`
+- 运行方式：本地或 Docker 自行部署
+- 计费方式：项目本身免费，不需要购买第三方语音 API
+- 成本来源：只会消耗你自己的机器 CPU / GPU / 内存资源
+
+这和 `Deepgram`、`AssemblyAI` 这类按量计费的商业 API 不同。
 
 ## Docker Compose 部署
 
@@ -52,7 +62,7 @@ PowerShell：
 Copy-Item "D:\Code\Python\Ai\wechat\media-tool\.env.example" "D:\Code\Python\Ai\wechat\media-tool\.env"
 ```
 
-或在项目目录执行：
+或者在项目目录执行：
 
 ```powershell
 copy .env.example .env
@@ -66,36 +76,24 @@ copy .env.example .env
 MEDIA_TOOL_PIP_INDEX_URL=https://pypi.org/simple
 MEDIA_TOOL_PIP_EXTRA_INDEX_URL=
 
-MEDIA_TOOL_OPENTYPELESS_MODEL=doubao-asr
-MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH=/app/runtime/storage/opentypeless/credentials.json
-MEDIA_TOOL_OPENTYPELESS_DEVICE_ID=
-MEDIA_TOOL_OPENTYPELESS_TOKEN=
-MEDIA_TOOL_OPENTYPELESS_DEFAULT_BACKEND=ime
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE=flash
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY=
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY=
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_SUBMIT_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_QUERY_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/query
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_ENDPOINT=https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_RESOURCE_ID=volc.seedasr.auc
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_RESOURCE_ID=volc.bigasr.auc_turbo
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODEL_NAME=bigmodel
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_UID=opentypeless
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_TIMEOUT_SEC=120
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_INTERVAL_SEC=1.0
-MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_TIMEOUT_SEC=300
-
+MEDIA_TOOL_FFMPEG_PATH=
 MEDIA_TOOL_REQUEST_TIMEOUT=30
 MAX_CACHE_SIZE_MB=15
+
+MEDIA_TOOL_TRANSCRIPTION_BASE_URL=http://whisper-asr:9000
+MEDIA_TOOL_TRANSCRIPTION_TASK=transcribe
+MEDIA_TOOL_TRANSCRIPTION_LANGUAGE=zh
+MEDIA_TOOL_TRANSCRIPTION_TIMEOUT=300
+MEDIA_TOOL_TRANSCRIPTION_ENCODE=true
+MEDIA_TOOL_TRANSCRIPTION_WORD_TIMESTAMPS=false
+MEDIA_TOOL_TRANSCRIPTION_VAD_FILTER=false
+
+MEDIA_TOOL_ASR_ENGINE=faster_whisper
+MEDIA_TOOL_ASR_MODEL=small
+MEDIA_TOOL_ASR_DEVICE=cpu
 ```
 
-说明：
-
-- `doubao-asr` 为 IME 模式，通常依赖本地凭据缓存
-- `doubao-asr-official*` 为官方文件识别模式，需要填写 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY` 与 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY`
-- 如果服务器访问 PyPI 不稳定，可以把 `MEDIA_TOOL_PIP_INDEX_URL` 改成可用镜像
-
-### 3. 构建并启动
+### 3. 启动服务
 
 ```powershell
 docker compose up -d --build
@@ -106,7 +104,10 @@ docker compose up -d --build
 ```powershell
 docker compose ps
 docker compose logs -f media-tool
+docker compose logs -f whisper-asr
 ```
+
+第一次启动 `whisper-asr` 时，镜像可能会下载模型，耗时取决于网络与模型大小。
 
 ### 5. 健康检查
 
@@ -120,57 +121,25 @@ curl http://localhost:8000/api/health
 {"success": true, "message": "ok"}
 ```
 
-## 环境变量说明
+## `.env` 字段说明
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | Docker 构建时使用的主 PyPI 源 |
+| `MEDIA_TOOL_PIP_INDEX_URL` | `https://pypi.org/simple` | Docker 构建时使用的 Python 包源 |
 | `MEDIA_TOOL_PIP_EXTRA_INDEX_URL` | 空 | 可选的额外 Python 包源 |
-| `MEDIA_TOOL_OPENTYPELESS_MODEL` | `doubao-asr` | 默认转写模型 |
-| `MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH` | `/app/runtime/storage/opentypeless/credentials.json` | IME 模式凭据缓存文件路径 |
-| `MEDIA_TOOL_OPENTYPELESS_DEVICE_ID` | 空 | IME 模式设备 ID，可选 |
-| `MEDIA_TOOL_OPENTYPELESS_TOKEN` | 空 | IME 模式 Token，可选 |
-| `MEDIA_TOOL_OPENTYPELESS_DEFAULT_BACKEND` | `ime` | 默认后端，支持 `ime`、`official` |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE` | `flash` | 官方模式，支持 `flash`、`standard` |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY` | 空 | 官方文件识别 App Key |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY` | 空 | 官方文件识别 Access Key |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_SUBMIT_ENDPOINT` | 官方默认 submit 地址 | 官方标准版提交地址 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_QUERY_ENDPOINT` | 官方默认 query 地址 | 官方标准版查询地址 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_ENDPOINT` | 官方默认 flash 地址 | 官方极速版识别地址 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_STANDARD_RESOURCE_ID` | `volc.seedasr.auc` | 官方标准版资源 ID |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_FLASH_RESOURCE_ID` | `volc.bigasr.auc_turbo` | 官方极速版资源 ID |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODEL_NAME` | `bigmodel` | 官方请求模型名 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_UID` | `opentypeless` | 官方请求 UID |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_TIMEOUT_SEC` | `120` | 官方接口请求超时，单位秒 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_INTERVAL_SEC` | `1.0` | 官方标准版轮询间隔，单位秒 |
-| `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_QUERY_TIMEOUT_SEC` | `300` | 官方标准版总轮询超时，单位秒 |
-| `MEDIA_TOOL_STORAGE_ROOT` | `/app/runtime/storage` | 容器内存储目录 |
-| `MEDIA_TOOL_LOG_ROOT` | `/app/runtime/logs` | 容器内日志目录 |
-| `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 普通 HTTP 请求超时，单位秒 |
-| `MAX_CACHE_SIZE_MB` | `15` | 缓存上限，单位 MB |
-
-## OpenTypeless 模型说明
-
-### 1. `doubao-asr`
-
-- IME 模式
-- 依赖本地凭据缓存
-- 适合不使用官方文件识别 Key 的场景
-
-### 2. `doubao-asr-official`
-
-- 官方文件识别模式
-- 具体走 `flash` 还是 `standard` 取决于 `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_MODE`
-
-### 3. `doubao-asr-official-standard`
-
-- 强制官方标准版
-- 采用提交任务加轮询查询的方式
-
-### 4. `doubao-asr-official-flash`
-
-- 强制官方极速版
-- 单次请求返回，延迟更低
+| `MEDIA_TOOL_FFMPEG_PATH` | 空 | 本地运行时可显式指定 `ffmpeg.exe` 路径 |
+| `MEDIA_TOOL_REQUEST_TIMEOUT` | `30` | 常规 HTTP 请求超时，单位秒 |
+| `MAX_CACHE_SIZE_MB` | `15` | 缓存大小上限 |
+| `MEDIA_TOOL_TRANSCRIPTION_BASE_URL` | `http://whisper-asr:9000` | Whisper ASR 服务地址 |
+| `MEDIA_TOOL_TRANSCRIPTION_TASK` | `transcribe` | 转写任务，支持 `transcribe` 或 `translate` |
+| `MEDIA_TOOL_TRANSCRIPTION_LANGUAGE` | `zh` | 默认语言代码，留空时自动检测 |
+| `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT` | `300` | 转写超时，单位秒 |
+| `MEDIA_TOOL_TRANSCRIPTION_ENCODE` | `true` | 是否让 ASR 服务先重编码 |
+| `MEDIA_TOOL_TRANSCRIPTION_WORD_TIMESTAMPS` | `false` | 是否返回逐词时间戳 |
+| `MEDIA_TOOL_TRANSCRIPTION_VAD_FILTER` | `false` | 是否启用静音过滤 |
+| `MEDIA_TOOL_ASR_ENGINE` | `faster_whisper` | Whisper 服务引擎 |
+| `MEDIA_TOOL_ASR_MODEL` | `small` | Whisper 模型大小 |
+| `MEDIA_TOOL_ASR_DEVICE` | `cpu` | Whisper 运行设备，可设为 `cpu` 或 `cuda` |
 
 ## Web UI
 
@@ -180,33 +149,20 @@ curl http://localhost:8000/api/health
 http://localhost:8000/
 ```
 
-### 当前界面工作流
+### 当前界面能力
 
-1. 粘贴分享文案或链接
-2. 选择 OpenTypeless 模型
-3. 根据模型填写对应参数
-4. 点击“解析链接”查看媒体结果
-5. 在预览区域按需下载视频、音频、封面或图集
-6. 点击“提取文案”获取转写结果
+- 粘贴分享文案或链接
+- 配置 Whisper ASR 服务地址、任务、语言和超时
+- 选择是否启用重编码、逐词时间戳、静音过滤
+- 点击“解析链接”查看媒体信息
+- 在预览区分别预览和下载视频、音频、封面、图集
+- 点击“提取文案”执行转写
 
-### 当前界面可配置项
+### 界面说明
 
-- OpenTypeless 模型
-- IME 凭据文件
-- IME 设备 ID
-- IME Token
-- 官方默认模式
-- 官方 App Key
-- 官方 Access Key
-- 官方 UID
-
-### 当前界面特性
-
-- 不再提供旧的后端切换
-- 不再提供独立“下载资源”大按钮
-- 下载入口位于各资源卡片内部
-- 解析摘要中不展示作者
-- 转写完成后自动删除临时视频和中间音频文件
+- 摘要区不再展示作者信息
+- 下载入口在各预览卡片内部
+- 文案提取完成后，服务端会自动删除临时下载文件
 
 ## HTTP API
 
@@ -234,7 +190,7 @@ curl http://localhost:8000/api/health
 
 ### `GET /api/asset`
 
-用于媒体预览与单项下载。
+用于媒体预览和单项下载。
 
 参数：
 
@@ -245,40 +201,40 @@ curl http://localhost:8000/api/health
 | `index` | 否 | 图集索引，仅 `kind=image` 时使用 |
 | `disposition` | 否 | `inline` 或 `attachment` |
 
-### `POST /api/extract`
+示例：
 
-IME 模式示例：
-
-```json
-{
-  "text": "https://www.douyin.com/video/7396822576074460467",
-  "model": "doubao-asr",
-  "opentypeless_credential_path": "/app/runtime/storage/opentypeless/credentials.json",
-  "save_transcript": true
-}
+```text
+/api/asset?text=https%3A%2F%2Fwww.douyin.com%2Fvideo%2F7396822576074460467&kind=video&disposition=inline
 ```
 
-官方极速版示例：
+### `POST /api/extract`
+
+请求：
 
 ```json
 {
   "text": "https://www.douyin.com/video/7396822576074460467",
-  "model": "doubao-asr-official-flash",
-  "opentypeless_official_app_key": "your-app-key",
-  "opentypeless_official_access_key": "your-access-key",
-  "opentypeless_official_uid": "opentypeless",
+  "transcription_base_url": "http://whisper-asr:9000",
+  "transcription_task": "transcribe",
+  "transcription_language": "zh",
+  "transcription_timeout": 300,
+  "transcription_encode": true,
+  "transcription_word_timestamps": false,
+  "transcription_vad_filter": false,
   "save_transcript": true
 }
 ```
 
 返回中的 `transcription` 字段会包含：
 
-- `backend`
-- `model`
-- `mode`
-- `credential_path`
-- `device_id`
-- `official_uid`
+- `provider`
+- `base_url`
+- `endpoint`
+- `task`
+- `language`
+- `detected_language`
+- `segment_count`
+- `cleanup`
 
 ## CLI
 
@@ -294,16 +250,10 @@ python cli.py parse -t "https://www.douyin.com/video/7396822576074460467"
 python cli.py download -t "https://www.douyin.com/video/7396822576074460467"
 ```
 
-### IME 模式提取
+### 提取文案
 
 ```powershell
-python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --model doubao-asr --credential-path ./credentials.json
-```
-
-### 官方极速版提取
-
-```powershell
-python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --model doubao-asr-official-flash --official-app-key your-app-key --official-access-key your-access-key
+python cli.py extract -t "https://www.douyin.com/video/7396822576074460467" --transcription-base-url http://127.0.0.1:9000 --transcription-language zh
 ```
 
 ## MCP Server
@@ -320,56 +270,100 @@ python mcp_server.py
 - `download_media_assets`
 - `extract_media_copy`
 
-## 本地直接运行
+## Windows 本地开发与调试
+
+### 1. 建议 Python 版本
+
+建议使用 `Python 3.11` 或 `Python 3.12`。
+
+不建议直接使用 `Python 3.14`，因为部分三方依赖在 Windows 上可能没有现成 wheel。
+
+### 2. 创建虚拟环境
 
 ```powershell
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8051
+cd D:\Code\Python\Ai\wechat\media-tool
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-额外要求：
+### 3. 配置 `.env`
 
-- 本机需要安装 `ffmpeg`
-- IME 模式需要系统可用的 `libopus` 运行库
+本地运行示例：
+
+```env
+MEDIA_TOOL_FFMPEG_PATH=D:\Env\FFmpeg\bin\ffmpeg.exe
+MEDIA_TOOL_TRANSCRIPTION_BASE_URL=http://127.0.0.1:9000
+MEDIA_TOOL_TRANSCRIPTION_TASK=transcribe
+MEDIA_TOOL_TRANSCRIPTION_LANGUAGE=zh
+MEDIA_TOOL_TRANSCRIPTION_TIMEOUT=300
+```
+
+### 4. 启动本地服务
+
+```powershell
+python -m uvicorn app:app --host 0.0.0.0 --port 8051 --reload
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8051/
+```
+
+## ffmpeg 说明
+
+当前版本中：
+
+- 解析、预览、Whisper 转写本身不依赖 `ffmpeg`
+- 某些平台的视频下载或音视频合并流程仍可能依赖 `ffmpeg`
+
+如果本地运行时提示找不到 `ffmpeg`，请确认：
+
+1. `ffmpeg.exe` 已安装
+2. 已加入系统 `PATH`
+3. 或者在 `.env` 中显式设置：
+
+```env
+MEDIA_TOOL_FFMPEG_PATH=D:\Env\FFmpeg\bin\ffmpeg.exe
+```
 
 ## 常见问题
 
-### 1. `docker compose build` 失败
+### 1. 提取文案时报 404
 
-建议先执行：
+通常是 `MEDIA_TOOL_TRANSCRIPTION_BASE_URL` 配错了。
 
-```powershell
-docker compose build --no-cache --progress=plain
+Whisper 服务正确地址应当是：
+
+```text
+http://127.0.0.1:9000
 ```
 
-如果是 Python 包下载失败：
+或者在 Compose 内部使用：
 
-- 检查 `MEDIA_TOOL_PIP_INDEX_URL`
-- 改为可用镜像后重试
+```text
+http://whisper-asr:9000
+```
 
-### 2. 官方模式返回缺少配置
+### 2. 长视频转写不完整
 
-请确认已填写：
+当前实现会优先下载 `audio_url` 再上传到 Whisper 服务，这比直接用视频抽音频更稳定。
 
-- `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_APP_KEY`
-- `MEDIA_TOOL_OPENTYPELESS_OFFICIAL_ACCESS_KEY`
+如果仍然不完整，可以尝试：
 
-### 3. IME 模式转写失败
+- 把 `MEDIA_TOOL_ASR_MODEL` 从 `small` 提高到 `medium`
+- 延长 `MEDIA_TOOL_TRANSCRIPTION_TIMEOUT`
+- 打开 `MEDIA_TOOL_TRANSCRIPTION_ENCODE=true`
 
-建议确认：
+### 3. Windows 安装依赖失败
 
-- `MEDIA_TOOL_OPENTYPELESS_CREDENTIAL_PATH` 所在目录可写
-- 如凭据已失效，可删除旧凭据文件后重试
-- 容器已重新执行 `docker compose build --no-cache`
+如果你在 Windows 上遇到编译型依赖报错，优先确认：
 
-### 4. 提示找不到 `ffmpeg`
+- 使用的是 `Python 3.11` 或 `Python 3.12`
+- 已先执行 `python -m pip install --upgrade pip setuptools wheel`
 
-非 Docker 部署时，需要自行安装 `ffmpeg` 并加入 `PATH`。
+### 4. Docker 首次启动很慢
 
-Docker Compose 镜像内已内置 `ffmpeg`。
-
-### 5. 转写结束后文件会不会堆积
-
-不会。
-
-转写时使用的原始视频和中间音频只会放在临时目录，完成后自动清理。只有显式要求保存的 `transcript.md`、视频、封面或图集才会保留。
+这是 Whisper 模型首次下载造成的，属于正常现象。
